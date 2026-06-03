@@ -8,12 +8,16 @@ import {
   CalendarClock,
   CheckCircle2,
   ChevronRight,
+  CircleHelp,
   ExternalLink,
+  FileText,
   Loader2,
+  LockKeyhole,
   MapPin,
   MessageSquare,
   RefreshCw,
   Search,
+  ShieldCheck,
   Star,
   UsersRound,
 } from "lucide-react";
@@ -63,6 +67,60 @@ interface VacancyRiskReport {
   factors: string[];
   positives: string[];
   warnings: string[];
+  criticalWarnings: string[];
+}
+
+type ProStatus = "clear" | "unclear" | "suspicious" | "risky";
+type FinalVerdictLevel = "safe_to_apply" | "apply_with_caution" | "avoid";
+
+interface FreeSummary {
+  mainConclusion: string;
+  riskLevelText: string;
+  topWarnings: string[];
+  topPositives: string[];
+  missingInfo: string[];
+  applyAdvice: string;
+}
+
+interface CompanyInsight {
+  found: boolean;
+  name: string | null;
+  slug: string | null;
+  industry: string | null;
+  city: string | null;
+  publishedReviewsCount: number;
+  averageInternalRating: number | null;
+  hasExternalRatings: boolean;
+  summaryText: string;
+}
+
+interface ProPreviewSection {
+  status: ProStatus;
+  summary: string;
+  questions: string[];
+}
+
+interface ProPreview {
+  salary: ProPreviewSection;
+  employment: ProPreviewSection;
+  schedule: ProPreviewSection;
+  booking: {
+    mentioned: boolean;
+    summary: string;
+    questions: string[];
+  };
+  interviewQuestions: string[];
+  documentChecklist: string[];
+  finalVerdict: {
+    level: FinalVerdictLevel;
+    text: string;
+  };
+}
+
+interface VacancyAnalysis {
+  freeSummary: FreeSummary;
+  companyInsight: CompanyInsight;
+  proPreview: ProPreview;
 }
 
 interface VacancyReport {
@@ -73,6 +131,7 @@ interface VacancyReport {
   internalReviews: InternalReviewsSummary;
   externalRatings: ExternalRating[];
   risk: VacancyRiskReport;
+  analysis: VacancyAnalysis;
   fallbackReason: string | null;
 }
 
@@ -109,6 +168,25 @@ const RISK_META: Record<RiskLevel, { label: string; className: string }> = {
   unknown: {
     label: "Недостатньо даних",
     className: "border-ink/10 bg-ink/[0.04] text-ink-soft",
+  },
+};
+
+const PRO_STATUS_META: Record<ProStatus, { label: string; className: string }> = {
+  clear: {
+    label: "Зрозуміло",
+    className: "border-brand-200 bg-brand-50 text-brand-700",
+  },
+  unclear: {
+    label: "Потрібно уточнити",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  suspicious: {
+    label: "Насторожує",
+    className: "border-red-200 bg-red-50 text-red-700",
+  },
+  risky: {
+    label: "Ризиково",
+    className: "border-red-200 bg-red-50 text-red-700",
   },
 };
 
@@ -269,7 +347,7 @@ function SignalList({
 }
 
 function VacancySummary({ report }: { report: VacancyReport }) {
-  const { parsedVacancy, matchedCompany, risk } = report;
+  const { parsedVacancy, matchedCompany, risk, analysis } = report;
   const riskMeta = RISK_META[risk.riskLevel];
 
   return (
@@ -284,7 +362,7 @@ function VacancySummary({ report }: { report: VacancyReport }) {
           </h2>
         </div>
         <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", riskMeta.className)}>
-          Ризик: {riskMeta.label}
+          {analysis.freeSummary.riskLevelText || `Ризик: ${riskMeta.label}`}
         </span>
       </div>
 
@@ -333,48 +411,40 @@ function VacancySummary({ report }: { report: VacancyReport }) {
         </span>
       </div>
 
-      {matchedCompany ? (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-ink/[0.03] px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold text-ink">{matchedCompany.name}</p>
-            <p className="text-sm text-ink-soft">
-              {[matchedCompany.city, normalizeIndustry(matchedCompany.industry)].filter(Boolean).join(" · ") ||
-                "Компанія знайдена в базі"}
-            </p>
-          </div>
-          <Button href={`/companies/${matchedCompany.slug}`} variant="primary" size="sm">
-            Перейти до сторінки компанії <ChevronRight className="h-3.5 w-3.5" />
-          </Button>
-          <Button href={`/add-review?company=${encodeURIComponent(matchedCompany.slug)}`} variant="outline" size="sm">
-            Залишити відгук
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-ink/[0.03] px-4 py-3">
-          <p className="flex-1 text-sm text-ink-soft">
-            Компанію не знайдено в базі. Можна залишити перший відгук або
-            вставити більше тексту вакансії для точнішого пошуку.
-          </p>
-          <Button href="/add-review" variant="primary" size="sm">
-            Залишити відгук
-          </Button>
-        </div>
-      )}
+      <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+        {analysis.companyInsight.summaryText}
+      </p>
     </Card>
   );
 }
 
-function RiskSection({ risk }: { risk: VacancyRiskReport }) {
+function FreeSummarySection({ summary }: { summary: FreeSummary }) {
+  return (
+    <Card className="space-y-3 p-6">
+      <h3 className="font-display text-lg font-bold text-ink">
+        Короткий висновок
+      </h3>
+      <p className="text-sm leading-relaxed text-ink-soft">
+        {summary.mainConclusion}
+      </p>
+      <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-800">
+        {summary.applyAdvice}
+      </p>
+    </Card>
+  );
+}
+
+function RiskSection({ summary }: { summary: FreeSummary }) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Card className="space-y-3 p-5">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-700">
-          <AlertTriangle className="h-4 w-4" /> Що насторожує
+          <AlertTriangle className="h-4 w-4" /> На що звернути увагу
         </h3>
         <SignalList
           tone="warning"
-          items={risk.factors}
-          emptyText="Критичних формулювань у тексті не знайдено. Все одно уточніть умови на співбесіді."
+          items={summary.topWarnings}
+          emptyText="Критичних формулювань у тексті не знайдено."
         />
       </Card>
 
@@ -384,76 +454,94 @@ function RiskSection({ risk }: { risk: VacancyRiskReport }) {
         </h3>
         <SignalList
           tone="positive"
-          items={risk.positives}
+          items={summary.topPositives}
           emptyText="Позитивні умови в тексті не визначені автоматично."
         />
       </Card>
-
-      {risk.warnings.length > 0 && (
-        <Card className="space-y-2 p-5 md:col-span-2">
-          <h3 className="text-sm font-semibold text-ink">Попередження</h3>
-          <SignalList tone="warning" items={risk.warnings} emptyText="" />
-        </Card>
-      )}
     </div>
   );
 }
 
-function InternalReviewsSection({
+function CompanySection({
   company,
   summary,
+  insight,
 }: {
   company: ReportCompany | null;
   summary: InternalReviewsSummary;
+  insight: CompanyInsight;
 }) {
   return (
     <Card className="space-y-4 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h3 className="font-display text-lg font-bold text-ink">
-            Відгуки на Прозора робота
+            Компанія
           </h3>
           <p className="mt-1 text-sm text-ink-soft">
-            Це тільки наші опубліковані відгуки. Зовнішні оцінки не входять у цю статистику.
+            Дані з бази компаній та опублікованих відгуків Прозора робота.
           </p>
         </div>
-        {summary.averageRating !== null && (
-          <div className="flex flex-col items-end gap-1 rounded-xl bg-brand-50 px-4 py-2.5">
-            <Stars value={summary.averageRating} />
-            <span className="text-xs font-semibold text-brand-700">
-              {summary.averageRating.toFixed(1)} / 5
-            </span>
-          </div>
-        )}
       </div>
 
       {!company && (
-        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
-          Спочатку потрібно визначити компанію з тексту або назви.
-        </p>
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-ink/[0.03] px-4 py-3">
+          <p className="flex-1 text-sm text-ink-soft">{insight.summaryText}</p>
+          <Button href="/add-review" variant="primary" size="sm">
+            Залишити відгук
+          </Button>
+        </div>
       )}
 
-      {company && summary.reviewCount === 0 && (
-        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
-          На Прозора робота ще немає опублікованих відгуків про цю компанію.
-        </p>
-      )}
-
-      {summary.reviewCount > 0 && (
+      {company && (
         <>
-          <div className="flex flex-wrap gap-3 text-sm text-ink-soft">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.04] px-3 py-1">
-              <MessageSquare className="h-3.5 w-3.5" />
-              {formatNumber(summary.reviewCount)} опублікованих відгуків
-            </span>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DetailItem
+              label="Назва"
+              value={insight.name}
+              icon={<Briefcase className="h-3.5 w-3.5" />}
+            />
+            <DetailItem
+              label="Сфера"
+              value={normalizeIndustry(insight.industry)}
+              icon={<UsersRound className="h-3.5 w-3.5" />}
+            />
+            <DetailItem
+              label="Місто компанії"
+              value={insight.city}
+              icon={<MapPin className="h-3.5 w-3.5" />}
+            />
+            <div className="rounded-xl border border-ink/[0.06] bg-white px-4 py-3">
+              <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-ink-muted">
+                <MessageSquare className="h-3.5 w-3.5" />
+                Відгуки
+              </div>
+              <p className="text-sm font-semibold text-ink">
+                {formatNumber(insight.publishedReviewsCount)} опублікованих
+              </p>
+            </div>
           </div>
 
-          {summary.riskSignals.length > 0 && (
-            <SignalList
-              tone="warning"
-              items={summary.riskSignals}
-              emptyText=""
-            />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button href={`/companies/${company.slug}`} variant="primary" size="sm">
+              Перейти до сторінки компанії <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+            <Button href={`/add-review?company=${encodeURIComponent(company.slug)}`} variant="outline" size="sm">
+              Залишити відгук
+            </Button>
+          </div>
+
+          {summary.averageRating !== null ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-brand-50 px-4 py-3">
+              <Stars value={summary.averageRating} />
+              <span className="text-sm font-semibold text-brand-800">
+                {summary.averageRating.toFixed(1)} / 5 тільки за опублікованими відгуками Прозора робота
+              </span>
+            </div>
+          ) : (
+            <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+              На Прозора робота ще немає опублікованих відгуків про цю компанію.
+            </p>
           )}
 
           {summary.recentReviews.length > 0 && (
@@ -511,19 +599,192 @@ function ExternalRatingsSection({
   );
 }
 
+function MissingInfoSection({ items }: { items: string[] }) {
+  return (
+    <Card className="space-y-3 p-6">
+      <h3 className="flex items-center gap-2 font-display text-lg font-bold text-ink">
+        <CircleHelp className="h-5 w-5 text-amber-600" />
+        Якої інформації бракує
+      </h3>
+      {items.length > 0 ? (
+        <SignalList tone="warning" items={items} emptyText="" />
+      ) : (
+        <p className="text-sm text-ink-soft">
+          Основні умови описані достатньо для первинної перевірки. Все одно варто підтвердити їх письмово.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function ProBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-ink/10 bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink-soft">
+      <LockKeyhole className="h-3 w-3" />
+      Pro-звіт
+    </span>
+  );
+}
+
+function ProStatusBadge({ status }: { status: ProStatus }) {
+  const meta = PRO_STATUS_META[status];
+  return (
+    <span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", meta.className)}>
+      {meta.label}
+    </span>
+  );
+}
+
+function ProPreviewItem({
+  title,
+  section,
+  locked = false,
+}: {
+  title: string;
+  section: ProPreviewSection;
+  locked?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-ink">{title}</h4>
+        <div className="flex items-center gap-2">
+          {locked && <ProBadge />}
+          <ProStatusBadge status={section.status} />
+        </div>
+      </div>
+      <p className="text-sm leading-relaxed text-ink-soft">{section.summary}</p>
+      {section.questions.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {section.questions.slice(0, 3).map((question) => (
+            <li key={question} className="text-sm text-ink-soft">
+              {question}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ProListBlock({
+  title,
+  items,
+  icon,
+}: {
+  title: string;
+  items: string[];
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
+          {icon}
+          {title}
+        </h4>
+        <ProBadge />
+      </div>
+      <ul className="space-y-2">
+        {items.map((item) => (
+          <li key={item} className="text-sm text-ink-soft">
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ProPreviewSection({ preview }: { preview: ProPreview }) {
+  return (
+    <Card className="space-y-5 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h3 className="font-display text-lg font-bold text-ink">
+            Розширений аналіз
+          </h3>
+          <p className="mt-1 text-sm text-ink-soft">
+            Перші блоки доступні як preview. Розширений Pro-звіт буде доданий без гарантій безпеки і з акцентом на питання для перевірки.
+          </p>
+        </div>
+        <Button disabled variant="secondary" size="sm">
+          Отримати розширений аналіз
+        </Button>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <ProPreviewItem title="Зарплата і прозорість оплати" section={preview.salary} />
+        <ProPreviewItem title="Оформлення" section={preview.employment} />
+        <ProPreviewItem title="Графік і навантаження" section={preview.schedule} />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold text-ink">Бронювання / відстрочка</h4>
+            <ProBadge />
+          </div>
+          <p className="text-sm leading-relaxed text-ink-soft">{preview.booking.summary}</p>
+          <ul className="mt-3 space-y-1.5">
+            {preview.booking.questions.map((question) => (
+              <li key={question} className="text-sm text-ink-soft">
+                {question}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <ProListBlock
+          title="Питання для співбесіди"
+          items={preview.interviewQuestions}
+          icon={<MessageSquare className="h-4 w-4 text-brand-700" />}
+        />
+
+        <ProListBlock
+          title="Документи, які варто перевірити"
+          items={preview.documentChecklist}
+          icon={<FileText className="h-4 w-4 text-brand-700" />}
+        />
+
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <ShieldCheck className="h-4 w-4 text-brand-700" />
+              Підсумкова рекомендація
+            </h4>
+            <ProBadge />
+          </div>
+          <p className="text-sm leading-relaxed text-ink-soft">
+            {preview.finalVerdict.text}
+          </p>
+        </div>
+      </div>
+
+      <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-xs text-ink-muted">
+        Оплата буде додана пізніше. Зараз це підготовлена структура майбутнього Pro-звіту.
+      </p>
+    </Card>
+  );
+}
+
 function ResultReport({ report }: { report: VacancyReport }) {
   return (
     <div className="space-y-5">
       <VacancySummary report={report} />
-      <RiskSection risk={report.risk} />
-      <InternalReviewsSection
+      <FreeSummarySection summary={report.analysis.freeSummary} />
+      <CompanySection
         company={report.matchedCompany}
         summary={report.internalReviews}
+        insight={report.analysis.companyInsight}
       />
       <ExternalRatingsSection
         company={report.matchedCompany}
         ratings={report.externalRatings}
       />
+      <RiskSection summary={report.analysis.freeSummary} />
+      <MissingInfoSection items={report.analysis.freeSummary.missingInfo} />
+      <ProPreviewSection preview={report.analysis.proPreview} />
     </div>
   );
 }

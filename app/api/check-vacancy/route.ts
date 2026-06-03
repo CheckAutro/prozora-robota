@@ -55,6 +55,53 @@ interface CompanyMatchResult {
   candidates: CompanyMatchCandidate[];
 }
 
+type ProStatus = "clear" | "unclear" | "suspicious" | "risky";
+type FinalVerdictLevel = "safe_to_apply" | "apply_with_caution" | "avoid";
+
+interface FreeSummary {
+  mainConclusion: string;
+  riskLevelText: string;
+  topWarnings: string[];
+  topPositives: string[];
+  missingInfo: string[];
+  applyAdvice: string;
+}
+
+interface CompanyInsight {
+  found: boolean;
+  name: string | null;
+  slug: string | null;
+  industry: string | null;
+  city: string | null;
+  publishedReviewsCount: number;
+  averageInternalRating: number | null;
+  hasExternalRatings: boolean;
+  summaryText: string;
+}
+
+interface ProPreviewSection {
+  status: ProStatus;
+  summary: string;
+  questions: string[];
+}
+
+interface ProPreview {
+  salary: ProPreviewSection;
+  employment: ProPreviewSection;
+  schedule: ProPreviewSection;
+  booking: {
+    mentioned: boolean;
+    summary: string;
+    questions: string[];
+  };
+  interviewQuestions: string[];
+  documentChecklist: string[];
+  finalVerdict: {
+    level: FinalVerdictLevel;
+    text: string;
+  };
+}
+
 const MANUAL_TEXT_MESSAGE =
   "Не вдалося автоматично зчитати вакансію. Скопіюйте текст вакансії вручну.";
 
@@ -807,6 +854,336 @@ function analyzeRisk(parsed: ParsedVacancy, reviewRiskSignals: string[]) {
     factors,
     positives,
     warnings,
+    criticalWarnings: high,
+  };
+}
+
+function uniqueItems(items: string[]): string[] {
+  return [...new Set(items.filter((item) => item.trim()))];
+}
+
+function vacancyText(parsed: ParsedVacancy): string {
+  return [parsed.title, parsed.companyName, parsed.city, parsed.salaryText, parsed.descriptionText]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function hasAnyTerm(text: string, terms: string[]): boolean {
+  return terms.some((term) => text.includes(term.toLowerCase()));
+}
+
+function hasClearSchedule(text: string): boolean {
+  return /(?:^|[^\d])\d\s*\/\s*\d(?:$|[^\d])/.test(text) ||
+    hasAnyTerm(text, ["чіткий графік", "прозорий графік", "позмінний", "позмінно", "повна зайнятість", "часткова зайнятість"]);
+}
+
+function hasEmploymentWording(text: string): boolean {
+  return hasAnyTerm(text, [
+    "офіційне працевлаштування",
+    "офіційне оформлення",
+    "трудовий договір",
+    "без оформлення",
+    "неофіційно",
+    "оформлення не потрібне",
+    "оформлення фоп",
+  ]);
+}
+
+function hasProbationWording(text: string): boolean {
+  return hasAnyTerm(text, ["випробувальний", "испытательный", "стажування", "стажировка"]);
+}
+
+function hasBonusWording(text: string): boolean {
+  return /(?:бонус|kpi|кпі|кпi|премі|преми|ставка\s*\+)/i.test(text);
+}
+
+function hasBonusFormula(text: string): boolean {
+  return /(?:формул|розрахову|розрахунок|відсот|процент|умов[аи]? бонус|правил[аи]? бонус|kpi\s*:|кпі\s*:)/i.test(text);
+}
+
+function hasBookingWording(text: string): boolean {
+  return hasAnyTerm(text, ["бронювання", "бронь", "відстрочка"]);
+}
+
+function extractSalaryNumbers(salaryText: string | null): number[] {
+  if (!salaryText) return [];
+  return [...salaryText.matchAll(/\d[\d\s]*/g)]
+    .map((match) => Number(match[0].replace(/\s/g, "")))
+    .filter((value) => Number.isFinite(value) && value > 0);
+}
+
+function buildMissingInfo(parsed: ParsedVacancy, matchedCompany: CompanyRow | null): string[] {
+  const text = vacancyText(parsed);
+  const missing: string[] = [];
+
+  if (!parsed.salaryText) {
+    missing.push("Не вказано зарплату або її фіксовану частину.");
+  }
+  if (!matchedCompany) {
+    missing.push("Компанію не вдалося надійно визначити.");
+  }
+  if (!hasEmploymentWording(text)) {
+    missing.push("Не вказано, чи є офіційне оформлення.");
+  }
+  if (!hasClearSchedule(text) && !hasAnyTerm(text, ["ненормований графік", "плаваючий графік", "24/7", "без вихідних"])) {
+    missing.push("Не вказано чіткий графік.");
+  }
+  if (!hasProbationWording(text)) {
+    missing.push("Не описано умови випробувального терміну.");
+  }
+  if (hasBonusWording(text) && !hasBonusFormula(text)) {
+    missing.push("Не описано формулу бонусів або KPI.");
+  }
+
+  return missing;
+}
+
+function buildFreeSummary(
+  parsed: ParsedVacancy,
+  matchedCompany: CompanyRow | null,
+  risk: ReturnType<typeof analyzeRisk>
+): FreeSummary {
+  const riskLevelText: Record<RiskLevel, string> = {
+    low: "Низький ризик",
+    medium: "Середній ризик",
+    high: "Високий ризик",
+    unknown: "Недостатньо даних",
+  };
+  const mainConclusion =
+    risk.riskLevel === "high"
+      ? "У вакансії є суттєві ризики. Варто уважно перевірити умови перед контактом з роботодавцем."
+      : risk.riskLevel === "medium"
+        ? "Є кілька моментів, які потрібно уточнити перед відгуком."
+        : risk.riskLevel === "unknown"
+          ? "Даних недостатньо для повної оцінки. Варто вставити більше тексту вакансії або уточнити умови напряму."
+          : "Вакансія виглядає відносно безпечно, але умови варто уточнити на співбесіді.";
+  const applyAdvice =
+    risk.riskLevel === "high"
+      ? "Краще не передавати документи і не погоджуватися на умови без письмового підтвердження."
+      : risk.riskLevel === "medium"
+        ? "Відгукуватися можна, але спочатку поставити уточнюючі питання."
+        : risk.riskLevel === "unknown"
+          ? "Спершу зберіть базові умови: оплату, оформлення, графік і юридичну назву компанії."
+          : "Можна відгукуватися, але уточнити оплату, оформлення та графік.";
+  const topWarnings = uniqueItems([
+    ...risk.criticalWarnings,
+    ...risk.factors.filter((factor) => !risk.criticalWarnings.includes(factor)),
+    ...risk.warnings,
+  ]).slice(0, 4);
+  const topPositives = uniqueItems(risk.positives).slice(0, 3);
+
+  return {
+    mainConclusion,
+    riskLevelText: riskLevelText[risk.riskLevel],
+    topWarnings: topWarnings.length ? topWarnings : ["Критичних формулювань у тексті не знайдено."],
+    topPositives: topPositives.length ? topPositives : ["Позитивні умови в тексті не визначені автоматично."],
+    missingInfo: buildMissingInfo(parsed, matchedCompany),
+    applyAdvice,
+  };
+}
+
+function buildCompanyInsight(
+  matchedCompany: CompanyRow | null,
+  internalReviews: Awaited<ReturnType<typeof loadReviewsSummary>>,
+  externalRatingsCount: number
+): CompanyInsight {
+  if (!matchedCompany) {
+    return {
+      found: false,
+      name: null,
+      slug: null,
+      industry: null,
+      city: null,
+      publishedReviewsCount: 0,
+      averageInternalRating: null,
+      hasExternalRatings: false,
+      summaryText: "Компанію не знайдено в базі. Можна залишити перший відгук або вставити більше тексту вакансії для точнішого пошуку.",
+    };
+  }
+
+  const reviewsText = internalReviews.reviewCount > 0
+    ? "На Прозора робота є опубліковані відгуки про цю компанію."
+    : "На Прозора робота ще немає опублікованих відгуків про цю компанію.";
+  const externalText = externalRatingsCount > 0
+    ? "Також є довідкові оцінки з відкритих джерел."
+    : "Публічних підтверджених зовнішніх оцінок поки немає.";
+
+  return {
+    found: true,
+    name: matchedCompany.name,
+    slug: matchedCompany.slug,
+    industry: matchedCompany.industry,
+    city: matchedCompany.city,
+    publishedReviewsCount: internalReviews.reviewCount,
+    averageInternalRating: internalReviews.averageRating,
+    hasExternalRatings: externalRatingsCount > 0,
+    summaryText: `${reviewsText} ${externalText}`,
+  };
+}
+
+function buildSalaryPreview(parsed: ParsedVacancy): ProPreviewSection {
+  const text = vacancyText(parsed);
+  const salary = parsed.salaryText;
+  const questions = ["Яка фіксована ставка?"];
+
+  if (hasBonusWording(text)) {
+    questions.push("Як розраховується бонус або KPI?", "Коли і як виплачують бонус?");
+  }
+
+  if (!salary) {
+    return {
+      status: "unclear",
+      summary: "Зарплата або фіксована частина не визначена з тексту вакансії.",
+      questions: uniqueItems(questions),
+    };
+  }
+
+  const suspicious = hasAnyTerm(text, ["виплати щодня", "швидкий дохід", "зарплата тільки %", "тільки %", "лише відсоток", "лише %"]);
+  const salaryNumbers = extractSalaryNumbers(salary);
+  const [minSalary, maxSalary] = salaryNumbers.length >= 2
+    ? [Math.min(...salaryNumbers), Math.max(...salaryNumbers)]
+    : [null, null];
+  const wideRange = Boolean(minSalary && maxSalary && (maxSalary / minSalary >= 1.7 || maxSalary - minSalary >= 30000));
+  const summaryParts = [
+    hasBonusWording(text)
+      ? "Зарплата містить бонусну або KPI-частину, тому потрібно уточнити фіксовану ставку."
+      : "Зарплата вказана у компактному форматі.",
+    wideRange ? "Діапазон зарплати широкий, потрібно уточнити реальну фіксовану частину." : "",
+    suspicious ? "У тексті є формулювання про швидкі або щоденні виплати, це варто перевірити письмово." : "",
+  ].filter(Boolean);
+
+  return {
+    status: suspicious ? "suspicious" : "clear",
+    summary: summaryParts.join(" "),
+    questions: uniqueItems(questions),
+  };
+}
+
+function buildEmploymentPreview(parsed: ParsedVacancy): ProPreviewSection {
+  const text = vacancyText(parsed);
+  const risky = hasAnyTerm(text, ["оформлення не потрібне", "без оформлення", "без офіційного оформлення", "неофіційно"]);
+  const clear = hasAnyTerm(text, ["офіційне працевлаштування", "офіційне оформлення", "трудовий договір"]);
+
+  return {
+    status: risky ? "risky" : clear ? "clear" : "unclear",
+    summary: risky
+      ? "У тексті є ризикові формулювання щодо оформлення."
+      : clear
+        ? "У вакансії згадується офіційне працевлаштування або оформлення."
+        : "У тексті не вдалося визначити, чи є офіційне оформлення.",
+    questions: [
+      "Чи є офіційне оформлення з першого дня?",
+      "Який тип договору?",
+      "Чи оплачують випробувальний термін?",
+    ],
+  };
+}
+
+function buildSchedulePreview(parsed: ParsedVacancy): ProPreviewSection {
+  const text = vacancyText(parsed);
+  const risky = hasAnyTerm(text, ["ненормований графік", "24/7", "без вихідних", "понаднормово", "сверхурочно"]);
+  const clear = hasClearSchedule(text);
+
+  return {
+    status: risky ? "risky" : clear ? "clear" : "unclear",
+    summary: risky
+      ? "У тексті є ознаки підвищеного навантаження або нечіткого графіку."
+      : clear
+        ? "Графік або тип зайнятості описаний у тексті."
+        : "Чіткий графік не визначений автоматично.",
+    questions: [
+      "Який точний графік?",
+      "Як оплачуються понаднормові?",
+      "Чи є нічні зміни або робота у вихідні?",
+    ],
+  };
+}
+
+function buildProPreview(
+  parsed: ParsedVacancy,
+  matchedCompany: CompanyRow | null,
+  risk: ReturnType<typeof analyzeRisk>
+): ProPreview {
+  const text = vacancyText(parsed);
+  const salary = buildSalaryPreview(parsed);
+  const employment = buildEmploymentPreview(parsed);
+  const schedule = buildSchedulePreview(parsed);
+  const bookingMentioned = hasBookingWording(text);
+  const interviewQuestions: string[] = [];
+
+  if (salary.status !== "clear" || hasBonusWording(text)) {
+    interviewQuestions.push(...salary.questions);
+  }
+  if (employment.status !== "clear") {
+    interviewQuestions.push(...employment.questions);
+  }
+  if (schedule.status !== "clear") {
+    interviewQuestions.push(...schedule.questions);
+  }
+  if (!hasProbationWording(text)) {
+    interviewQuestions.push("Які умови випробувального терміну і як вони оплачуються?");
+  }
+  if (bookingMentioned) {
+    interviewQuestions.push("Чи дають письмове підтвердження бронювання або відстрочки?");
+  }
+  if (!matchedCompany) {
+    interviewQuestions.push("Чи можете надати повну юридичну назву компанії?");
+  }
+  interviewQuestions.push("Які умови будуть зафіксовані письмово до початку роботи?");
+
+  const documentChecklist = [
+    "Трудовий договір або наказ про прийняття",
+    "Умови оплати",
+    "Графік роботи",
+    "Посадова інструкція",
+    "Правила бонусів / KPI, якщо є бонуси",
+    "Умови випробувального терміну",
+    ...(bookingMentioned
+      ? [
+          "Підстава бронювання",
+          "Наказ",
+          "Строк дії",
+          "Підтвердження відповідності посади критеріям",
+        ]
+      : []),
+  ];
+  const missingSalaryOrEmployment = salary.status === "unclear" || employment.status === "unclear" || employment.status === "risky";
+  const verdictLevel: FinalVerdictLevel =
+    risk.riskLevel === "high" || risk.criticalWarnings.length >= 2
+      ? "avoid"
+      : risk.riskLevel === "medium" || risk.riskLevel === "unknown" || (!matchedCompany && missingSalaryOrEmployment)
+        ? "apply_with_caution"
+        : "safe_to_apply";
+
+  return {
+    salary,
+    employment,
+    schedule,
+    booking: {
+      mentioned: bookingMentioned,
+      summary: bookingMentioned
+        ? "Бронювання потрібно перевіряти документально."
+        : "Бронювання або відстрочка не згадуються у тексті вакансії.",
+      questions: bookingMentioned
+        ? [
+            "На якій підставі надається бронювання?",
+            "На який строк?",
+            "Чи дають письмове підтвердження?",
+            "Чи відповідає посада критеріям бронювання?",
+          ]
+        : ["Чи передбачає посада бронювання або відстрочку, якщо це важливо для вас?"],
+    },
+    interviewQuestions: uniqueItems(interviewQuestions).slice(0, 8),
+    documentChecklist: uniqueItems(documentChecklist),
+    finalVerdict: {
+      level: verdictLevel,
+      text: verdictLevel === "avoid"
+        ? "Умови варто перевірити особливо уважно. Не передавайте документи і не погоджуйтеся на роботу без письмового підтвердження ключових умов."
+        : verdictLevel === "apply_with_caution"
+          ? "Відгукуватися можна обережно: спершу уточніть оплату, оформлення, графік і зафіксуйте важливі домовленості письмово."
+          : "Можна відгукуватися, але це не гарантія безпеки. Підтвердіть оплату, оформлення і графік письмово до старту.",
+    },
   };
 }
 
@@ -924,7 +1301,16 @@ export async function POST(req: NextRequest) {
   const externalRatings = matchedCompany
     ? await getPublicExternalRatings(matchedCompany.slug)
     : [];
-  const risk = analyzeRisk(parsed, internalReviews.riskSignals);
+  const baseRisk = analyzeRisk(parsed, internalReviews.riskSignals);
+  const risk = {
+    ...baseRisk,
+    warnings: [...baseRisk.warnings, ...warnings],
+  };
+  const analysis = {
+    freeSummary: buildFreeSummary(parsed, matchedCompany, risk),
+    companyInsight: buildCompanyInsight(matchedCompany, internalReviews, externalRatings.length),
+    proPreview: buildProPreview(parsed, matchedCompany, risk),
+  };
 
   return NextResponse.json({
     ok: true,
@@ -933,10 +1319,8 @@ export async function POST(req: NextRequest) {
     matchedCompany,
     internalReviews,
     externalRatings,
-    risk: {
-      ...risk,
-      warnings: [...risk.warnings, ...warnings],
-    },
+    risk,
+    analysis,
     fallbackReason,
     ...(process.env.NODE_ENV === "development"
       ? {
