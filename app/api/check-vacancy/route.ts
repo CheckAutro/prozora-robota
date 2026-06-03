@@ -247,14 +247,17 @@ function cleanSalaryText(
   if (context?.companyName && lower.includes(context.companyName.toLowerCase())) return null;
 
   const moneyPattern = /^(?:від\s*)?(?:до\s*)?\d[\d\s]*(?:[—–-]\s*\d[\d\s]*)?\s*(?:грн|₴|uah)(?:\s*(?:\/міс\.?|міс\.?|на місяць|net|gross))?$/i;
+  const bonusSalaryPattern =
+    /^(?:від\s*)?(?:до\s*)?\d[\d\s]*(?:[—–-]\s*\d[\d\s]*)?\s*(?:грн|₴|uah)(?:\s*(?:\/міс\.?|міс\.?|на місяць|net|gross))?\s*\+\s*(?:\d[\d\s]*)?\s*(?:бонус(?:и|ів)?|bonus(?:es)?|премі(?:я|ї))?$/i;
   const interviewPattern = /^за результатами співбесіди$/i;
   const ratePattern = /^ставка\s*\+?\s*(?:кпі|kpi)(?:\/міс\.?)?$/i;
   const compactWords = lower
     .replace(/\d[\d\s]*(?:[—–-]\s*\d[\d\s]*)?\s*(?:грн|₴|uah)/gi, "")
+    .replace(/\+\s*(?:\d[\d\s]*)?\s*(?:бонус(?:и|ів)?|bonus(?:es)?|премі(?:я|ї))?/gi, "")
     .split(/\s+/)
     .filter(Boolean);
 
-  if (moneyPattern.test(text) || interviewPattern.test(text) || ratePattern.test(text)) {
+  if (moneyPattern.test(text) || bonusSalaryPattern.test(text) || interviewPattern.test(text) || ratePattern.test(text)) {
     return text;
   }
 
@@ -263,6 +266,20 @@ function cleanSalaryText(
   }
 
   return null;
+}
+
+function combineRobotaSalary(baseSalary: string | null, salaryComment: string | null): string | null {
+  const base = baseSalary ? cleanText(baseSalary).replace(/\*/g, "").trim() : "";
+  const comment = salaryComment ? cleanText(salaryComment).replace(/\*/g, "").trim() : "";
+  if (!base) return comment || null;
+  if (!comment) return base;
+
+  const compactBonusComment = /^\+\s*(?:\d[\d\s]*)?\s*(?:бонус(?:и|ів)?|bonus(?:es)?|премі(?:я|ї))?$/i;
+  if (comment.length <= 40 && compactBonusComment.test(comment)) {
+    return `${base} ${comment}`.replace(/\s+/g, " ").trim();
+  }
+
+  return base;
 }
 
 function findJobPosting(value: unknown): Record<string, unknown> | null {
@@ -482,10 +499,15 @@ function parseRobotaUaVacancy(html: string, sourceUrl: string): ParseResult {
     : "";
   const meta = parseMetaVacancy(html, "Robota.ua", sourceUrl);
   const title = h1Tag ? stripHtml(h1Tag) : meta.parsed.title;
-  const rawSalary = matchTag(
+  const rawSalaryBase = matchTag(
     mainHtml,
     /<span[^>]+data-id=["']vacancy-salary-from-to["'][^>]*>([\s\S]*?)<\/span>/i
   );
+  const rawSalaryComment = matchTag(
+    mainHtml,
+    /<span[^>]+data-id=["']vacancy-salary-comment["'][^>]*>([\s\S]*?)<\/span>/i
+  );
+  const rawSalary = combineRobotaSalary(rawSalaryBase, rawSalaryComment);
   const logoTag = firstTag(mainHtml, /<img[^>]+(?:alt|title)=["'][^"']+["'][^>]*>/i);
   const companyFromLogo = logoTag
     ? getTagAttr(logoTag, "alt") ?? getTagAttr(logoTag, "title")?.replace(/\s+—\s+robota\.ua$/i, "")
