@@ -134,6 +134,10 @@ function detailValue(value: string | null | undefined): string {
   return value && value.trim() ? value : "Не визначено";
 }
 
+function displayInputType(inputType: string): string {
+  return inputType === "text" || inputType === "company name" ? "Вручну" : inputType;
+}
+
 function DetailItem({
   label,
   value,
@@ -292,7 +296,7 @@ function VacancySummary({ report }: { report: VacancyReport }) {
         />
         <DetailItem
           label="Тип вводу"
-          value={report.inputType}
+          value={displayInputType(report.inputType)}
           icon={<Search className="h-3.5 w-3.5" />}
         />
       </div>

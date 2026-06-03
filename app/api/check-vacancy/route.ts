@@ -46,7 +46,6 @@ const MEDIUM_RISK = [
   { label: "Ненормований графік", terms: ["ненормований графік", "ненормированный график"] },
   { label: "Плаваючий графік", terms: ["плаваючий графік", "плавающий график"] },
   { label: "Випробувальний термін", terms: ["випробувальний термін", "испытательный срок"] },
-  { label: "Бронювання сформульовано не як гарантія", terms: ["можливе бронювання", "бронювання можливе"] },
   { label: "Зарплата до без фіксованої частини", terms: ["зарплата до", "дохід до", "зп до"] },
 ];
 
@@ -56,10 +55,12 @@ const POSITIVE = [
   { label: "Медичне страхування", terms: ["медичне страхування", "медстрахування"] },
   { label: "Прозорий графік", terms: ["прозорий графік", "чіткий графік"] },
   { label: "Ставка + бонус", terms: ["ставка + бонус", "ставка плюс бонус", "ставка та бонус"] },
-  { label: "Бронювання", terms: ["бронювання"] },
   { label: "Оплачуване навчання", terms: ["оплачуване навчання"] },
   { label: "Зарплата вказана явно", terms: ["грн", "₴", "uah"] },
 ];
+
+const BOOKING_WARNING =
+  "Бронювання потрібно перевіряти документально: підстава, наказ, строк дії та відповідність посади критеріям.";
 
 const ALIASES: Record<string, string[]> = {
   "nova-poshta": ["нова пошта", "нп", "novaposhta"],
@@ -269,16 +270,65 @@ function parseHtmlVacancy(html: string, source: SourceName, sourceUrl: string): 
   };
 }
 
+function matchManualField(lines: string[], labels: string[]): string | null {
+  const labelPattern = labels.join("|");
+  const pattern = new RegExp(`^\\s*(?:${labelPattern})\\s*[:：-]\\s*(.+?)\\s*$`, "i");
+  for (const line of lines) {
+    const match = pattern.exec(line);
+    if (match?.[1]) return cleanText(match[1]);
+  }
+  return null;
+}
+
+function extractManualSalary(lines: string[]): string | null {
+  const labeledSalary = matchManualField(lines, [
+    "Зарплата",
+    "Оплата",
+    "Дохід",
+    "Доход",
+    "Salary",
+  ]);
+  if (labeledSalary) return labeledSalary;
+
+  const moneyPattern =
+    /(?:від\s*)?\d[\d\s]*(?:[-–—]\s*\d[\d\s]*)?\s*(?:грн|₴|uah)(?:\s*(?:на місяць|\/міс\.?|міс\.?|net|gross))?/i;
+  for (const line of lines) {
+    const match = moneyPattern.exec(line);
+    if (match?.[0]) return cleanText(match[0]);
+  }
+  return null;
+}
+
 function parseManualVacancy(input: string): ParsedVacancy {
+  const lines = input
+    .split(/\r?\n/)
+    .map((line) => decodeHtml(line).trim())
+    .filter(Boolean);
   const text = cleanText(input);
-  const salaryMatch = text.match(/(?:зарплата|salary|оплата|дохід)[^.]{0,120}|(?:\d[\d\s]{2,}\s*(?:грн|₴|uah))[^.]{0,80}/i);
+
   return {
     source: "Вручну",
     sourceUrl: null,
-    title: null,
-    companyName: null,
-    city: null,
-    salaryText: salaryMatch ? cleanText(salaryMatch[0]) : null,
+    title: matchManualField(lines, [
+      "Вакансія",
+      "Назва вакансії",
+      "Посада",
+      "Вакансия",
+      "Должность",
+    ]),
+    companyName: matchManualField(lines, [
+      "Компанія",
+      "Компания",
+      "Роботодавець",
+      "Работодатель",
+    ]),
+    city: matchManualField(lines, [
+      "Місто",
+      "Город",
+      "Локація",
+      "Location",
+    ]),
+    salaryText: extractManualSalary(lines),
     descriptionText: text,
   };
 }
@@ -410,6 +460,9 @@ function analyzeRisk(parsed: ParsedVacancy, reviewRiskSignals: string[]) {
   const high = findTerms(text, HIGH_RISK);
   const medium = findTerms(text, MEDIUM_RISK);
   const positives = findTerms(text, POSITIVE);
+  const warnings = ["бронювання", "бронь", "відстрочка"].some((term) => text.includes(term))
+    ? [BOOKING_WARNING]
+    : [];
   const factors = [...high, ...medium, ...reviewRiskSignals];
   let riskScore = Math.min(100, high.length * 18 + medium.length * 8 + reviewRiskSignals.length * 6);
   riskScore = Math.max(0, riskScore - positives.length * 6);
@@ -424,6 +477,7 @@ function analyzeRisk(parsed: ParsedVacancy, reviewRiskSignals: string[]) {
     riskLevel,
     factors,
     positives,
+    warnings,
   };
 }
 
@@ -491,7 +545,7 @@ export async function POST(req: NextRequest) {
     externalRatings,
     risk: {
       ...risk,
-      warnings,
+      warnings: [...risk.warnings, ...warnings],
     },
     fallbackReason,
   });
