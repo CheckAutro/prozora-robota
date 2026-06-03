@@ -26,8 +26,40 @@ interface ParsedVacancy {
   descriptionText: string;
 }
 
+interface FetchHtmlResult {
+  html: string | null;
+  fallbackReason: string | null;
+  status: number | null;
+}
+
+interface ParseResult {
+  parsed: ParsedVacancy;
+  parsedFrom: string;
+  rawTitle: string | null;
+  rawCompany: string | null;
+  rawCity: string | null;
+  rawSalary: string | null;
+  cleanedSalary: string | null;
+  mainTextPreview: string;
+}
+
+interface CompanyMatchCandidate {
+  slug: string;
+  name: string;
+  score: number;
+  reason: string;
+}
+
+interface CompanyMatchResult {
+  company: CompanyRow | null;
+  candidates: CompanyMatchCandidate[];
+}
+
+const MANUAL_TEXT_MESSAGE =
+  "Не вдалося автоматично зчитати вакансію. Скопіюйте текст вакансії вручну.";
+
 const HIGH_RISK = [
-  { label: "Неофіційне оформлення", terms: ["неофіційно", "без оформлення", "без офіційного оформлення"] },
+  { label: "Неофіційне оформлення", terms: ["неофіційно", "без оформлення", "без офіційного оформлення", "оформлення не потрібне"] },
   { label: "Неоплачуване стажування", terms: ["стажування не оплачується", "неоплачуване стажування"] },
   { label: "Оплата після випробувального", terms: ["оплата після випробувального", "зарплата після випробувального"] },
   { label: "Зарплата тільки відсотками", terms: ["зарплата тільки %", "тільки %", "лише відсоток", "лише %"] },
@@ -63,10 +95,10 @@ const BOOKING_WARNING =
   "Бронювання потрібно перевіряти документально: підстава, наказ, строк дії та відповідність посади критеріям.";
 
 const ALIASES: Record<string, string[]> = {
-  "nova-poshta": ["нова пошта", "нп", "novaposhta"],
+  "a-bank": ["а-банк", "а банк", "абанк", "a-bank", "a bank", "abank"],
+  "nova-poshta": ["нова пошта", "нова пошта, тов", "нп", "novaposhta", "nova poshta", "nova-poshta"],
   ukrposhta: ["укрпошта", "укр пошта"],
-  privatbank: ["приватбанк", "приват банк", "privatbank", "pryvatbank"],
-  "a-bank": ["а-банк", "a-bank", "абанк"],
+  privatbank: ["приватбанк", "приват банк", "privatbank"],
   atb: ["атб", "атб-маркет", "atb"],
   silpo: ["сільпо", "silpo"],
   rozetka: ["розетка", "rozetka"],
@@ -108,8 +140,32 @@ function decodeHtml(text: string): string {
 
 function cleanText(text: string): string {
   return decodeHtml(text)
+    .replace(/&q;/g, '"')
+    .replace(/&a;/g, "&")
+    .replace(/&s;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeLookupText(text: string): string {
+  return cleanText(text)
+    .toLowerCase()
+    .replace(/[ʼ’`´]/g, "'")
+    .replace(/["«»„“”]/g, "")
+    .replace(/[.,;:()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripLegalSuffix(text: string): string {
+  return normalizeLookupText(text)
+    .replace(/\b(тов|тзов|ат|пат|приватне підприємство|пп|фоп|llc|ltd|inc)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isShortCompanyName(value: string): boolean {
+  return stripLegalSuffix(value).replace(/[^a-zа-яіїєґ0-9]/gi, "").length <= 4;
 }
 
 function stripHtml(html: string): string {
@@ -124,6 +180,89 @@ function stripHtml(html: string): string {
 function matchTag(html: string, pattern: RegExp): string | null {
   const match = pattern.exec(html);
   return match?.[1] ? cleanText(match[1]) : null;
+}
+
+function getTagAttr(tag: string, attr: string): string | null {
+  const pattern = new RegExp(`${attr}=["']([^"']+)["']`, "i");
+  const match = pattern.exec(tag);
+  return match?.[1] ? cleanText(match[1]) : null;
+}
+
+function firstTag(html: string, pattern: RegExp): string | null {
+  return pattern.exec(html)?.[0] ?? null;
+}
+
+function takeWindowAround(html: string, needle: RegExp, before = 2500, after = 8000): string {
+  const match = needle.exec(html);
+  if (!match || match.index === undefined) return "";
+  return html.slice(Math.max(0, match.index - before), match.index + after);
+}
+
+function truncateAtFirst(text: string, markers: string[]): string {
+  let result = text;
+  for (const marker of markers) {
+    const index = result.toLowerCase().indexOf(marker.toLowerCase());
+    if (index >= 0) result = result.slice(0, index);
+  }
+  return result;
+}
+
+function removeContextFragment(text: string, fragment: string | null | undefined): string {
+  if (!fragment) return text;
+  const normalized = cleanText(fragment);
+  if (!normalized) return text;
+  return text.replace(new RegExp(normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ");
+}
+
+function cleanSalaryText(
+  raw: string | null | undefined,
+  context?: { title?: string | null; companyName?: string | null; city?: string | null }
+): string | null {
+  if (!raw) return null;
+
+  let text = cleanText(raw)
+    .replace(/\*/g, "")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) return null;
+
+  text = truncateAtFirst(text, ["|", " robota", " work.ua", " work"]);
+  text = text.split(/\r?\n/)[0] ?? "";
+  text = removeContextFragment(text, context?.title);
+  text = removeContextFragment(text, context?.companyName);
+  text = removeContextFragment(text, context?.city);
+  text = text
+    .replace(/\s*,\s*$/g, "")
+    .replace(/\s+-\s+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text || text.length > 80) return null;
+
+  const lower = text.toLowerCase();
+  if (/(robota|work\.ua|drobot|recruiting agency)/i.test(text)) return null;
+  if (context?.city && lower.includes(context.city.toLowerCase())) return null;
+  if (context?.companyName && lower.includes(context.companyName.toLowerCase())) return null;
+
+  const moneyPattern = /^(?:від\s*)?(?:до\s*)?\d[\d\s]*(?:[—–-]\s*\d[\d\s]*)?\s*(?:грн|₴|uah)(?:\s*(?:\/міс\.?|міс\.?|на місяць|net|gross))?$/i;
+  const interviewPattern = /^за результатами співбесіди$/i;
+  const ratePattern = /^ставка\s*\+?\s*(?:кпі|kpi)(?:\/міс\.?)?$/i;
+  const compactWords = lower
+    .replace(/\d[\d\s]*(?:[—–-]\s*\d[\d\s]*)?\s*(?:грн|₴|uah)/gi, "")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (moneyPattern.test(text) || interviewPattern.test(text) || ratePattern.test(text)) {
+    return text;
+  }
+
+  if (/\d/.test(text) && /(грн|₴|uah)/i.test(text) && compactWords.length <= 2) {
+    return text;
+  }
+
+  return null;
 }
 
 function findJobPosting(value: unknown): Record<string, unknown> | null {
@@ -205,7 +344,7 @@ function extractJsonLd(html: string): Partial<ParsedVacancy> {
   return {};
 }
 
-async function fetchHtml(url: URL): Promise<{ html: string | null; fallbackReason: string | null }> {
+async function fetchHtml(url: URL): Promise<FetchHtmlResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
 
@@ -222,7 +361,8 @@ async function fetchHtml(url: URL): Promise<{ html: string | null; fallbackReaso
     if (!res.ok) {
       return {
         html: null,
-        fallbackReason: "Не вдалося автоматично зчитати вакансію. Вставте текст вакансії вручну.",
+        fallbackReason: MANUAL_TEXT_MESSAGE,
+        status: res.status,
       };
     }
 
@@ -230,43 +370,164 @@ async function fetchHtml(url: URL): Promise<{ html: string | null; fallbackReaso
     if (!html.trim()) {
       return {
         html: null,
-        fallbackReason: "Не вдалося автоматично зчитати вакансію. Вставте текст вакансії вручну.",
+        fallbackReason: MANUAL_TEXT_MESSAGE,
+        status: res.status,
       };
     }
 
-    return { html, fallbackReason: null };
+    return { html, fallbackReason: null, status: res.status };
   } catch {
     return {
       html: null,
-      fallbackReason: "Не вдалося автоматично зчитати вакансію. Вставте текст вакансії вручну.",
+      fallbackReason: MANUAL_TEXT_MESSAGE,
+      status: null,
     };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function parseHtmlVacancy(html: string, source: SourceName, sourceUrl: string): ParsedVacancy {
+function parseMetaVacancy(html: string, source: SourceName, sourceUrl: string): ParseResult {
   const jsonLd = extractJsonLd(html);
-  const bodyText = stripHtml(html);
+  const htmlTitle = matchTag(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
   const title =
     jsonLd.title ??
     matchTag(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i) ??
-    matchTag(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
-  const metaDescription =
-    matchTag(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i) ??
-    matchTag(html, /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["'][^>]*>/i);
-  const companyMatch = bodyText.match(/(?:Компанія|Компания|Роботодавець|Employer)\s*:?\s+(.{2,80}?)(?:\s{2,}| · | \| |$)/i);
-  const cityMatch = bodyText.match(/(?:Місто|Город|Локація|Location)\s*:?\s+(.{2,50}?)(?:\s{2,}| · | \| |$)/i);
-  const salaryMatch = bodyText.match(/(?:зарплата|salary|оплата|дохід)[^\n.]{0,120}|(?:\d[\d\s]{2,}\s*(?:грн|₴|uah))[^\n.]{0,80}/i);
-
-  return {
+    htmlTitle;
+  const metaDescription = matchTag(html, /<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']+)["'][^>]*>/i);
+  const rawSalary = jsonLd.salaryText ?? null;
+  const cleanedSalary = cleanSalaryText(rawSalary, {
+    title,
+    companyName: jsonLd.companyName ?? null,
+    city: jsonLd.city ?? null,
+  });
+  const parsed = {
     source,
     sourceUrl,
     title,
-    companyName: jsonLd.companyName ?? (companyMatch ? cleanText(companyMatch[1]) : null),
-    city: jsonLd.city ?? (cityMatch ? cleanText(cityMatch[1]) : null),
-    salaryText: jsonLd.salaryText ?? (salaryMatch ? cleanText(salaryMatch[0]) : null),
-    descriptionText: cleanText([jsonLd.descriptionText, metaDescription, bodyText].filter(Boolean).join(" ")).slice(0, 14000),
+    companyName: jsonLd.companyName ?? null,
+    city: jsonLd.city ?? null,
+    salaryText: cleanedSalary,
+    descriptionText: cleanText([jsonLd.descriptionText, metaDescription].filter(Boolean).join(" ")).slice(0, 14000),
+  };
+
+  return {
+    parsed,
+    parsedFrom: jsonLd.title ? "json-ld" : "meta",
+    rawTitle: title,
+    rawCompany: jsonLd.companyName ?? null,
+    rawCity: jsonLd.city ?? null,
+    rawSalary,
+    cleanedSalary,
+    mainTextPreview: parsed.descriptionText.slice(0, 500),
+  };
+}
+
+function parseWorkUaVacancy(html: string, sourceUrl: string): ParseResult {
+  const jsonLd = extractJsonLd(html);
+  const h1Tag = firstTag(html, /<h1[^>]+id=["']h1-name["'][\s\S]*?<\/h1>/i);
+  const mainHtml = h1Tag
+    ? takeWindowAround(html, /<h1[^>]+id=["']h1-name["'][\s\S]*?<\/h1>/i, 2500, 8500)
+    : "";
+  const descriptionHtml = matchTag(html, /<div[^>]+id=["']job-description["'][^>]*>([\s\S]*?)<\/div>/i);
+  const meta = parseMetaVacancy(html, "Work.ua", sourceUrl);
+  const title = jsonLd.title ?? (h1Tag ? stripHtml(h1Tag) : meta.parsed.title);
+  const companyFromStrong = matchTag(
+    mainHtml,
+    /<span[^>]+class=["'][^"']*strong-500[^"']*["'][^>]*>([\s\S]*?)<\/span>/i
+  );
+  const companyLogoTag = firstTag(mainHtml, /<img[^>]+(?:alt|title)=["'][^"']+["'][^>]*>/i);
+  const companyFromLogo = companyLogoTag
+    ? getTagAttr(companyLogoTag, "alt") ?? getTagAttr(companyLogoTag, "title")
+    : null;
+  const rawCompany = jsonLd.companyName ?? companyFromStrong ?? companyFromLogo;
+  const rawCity = jsonLd.city ?? matchTag(
+    mainHtml,
+    /<span[^>]+class=["'][^"']*glyphicon-map-marker[\s\S]*?<\/span>\s*([\s\S]*?)<\/li>/i
+  );
+  const rawSalary = jsonLd.salaryText ?? matchTag(
+    mainHtml,
+    /<span[^>]+class=["'][^"']*glyphicon-hryvnia[\s\S]*?<\/span>[\s\S]*?<span[^>]+class=["'][^"']*text-default-7[^"']*["'][^>]*>([\s\S]*?)<\/span>/i
+  );
+  const city = rawCity ? stripHtml(rawCity).replace(/\s+/g, " ").trim() : null;
+  const companyName = rawCompany ? cleanText(rawCompany) : null;
+  const cleanedSalary = cleanSalaryText(rawSalary, { title, companyName, city });
+  const descriptionText = cleanText([descriptionHtml ? stripHtml(descriptionHtml) : "", meta.parsed.descriptionText].filter(Boolean).join(" ")).slice(0, 14000);
+  const parsed = {
+    source: "Work.ua" as const,
+    sourceUrl,
+    title: title ? cleanText(title) : null,
+    companyName,
+    city,
+    salaryText: cleanedSalary,
+    descriptionText,
+  };
+
+  return {
+    parsed,
+    parsedFrom: h1Tag ? "work-main-block" : meta.parsedFrom,
+    rawTitle: title,
+    rawCompany,
+    rawCity,
+    rawSalary,
+    cleanedSalary,
+    mainTextPreview: stripHtml(mainHtml).slice(0, 500),
+  };
+}
+
+function parseRobotaUaVacancy(html: string, sourceUrl: string): ParseResult {
+  const h1Tag = firstTag(html, /<h1[^>]+data-id=["']vacancy-title["'][\s\S]*?<\/h1>/i);
+  const mainHtml = h1Tag
+    ? takeWindowAround(html, /<h1[^>]+data-id=["']vacancy-title["'][\s\S]*?<\/h1>/i, 2500, 9000)
+    : "";
+  const meta = parseMetaVacancy(html, "Robota.ua", sourceUrl);
+  const title = h1Tag ? stripHtml(h1Tag) : meta.parsed.title;
+  const rawSalary = matchTag(
+    mainHtml,
+    /<span[^>]+data-id=["']vacancy-salary-from-to["'][^>]*>([\s\S]*?)<\/span>/i
+  );
+  const logoTag = firstTag(mainHtml, /<img[^>]+(?:alt|title)=["'][^"']+["'][^>]*>/i);
+  const companyFromLogo = logoTag
+    ? getTagAttr(logoTag, "alt") ?? getTagAttr(logoTag, "title")?.replace(/\s+—\s+robota\.ua$/i, "")
+    : null;
+  const companyFromLink = matchTag(
+    mainHtml,
+    /<a[^>]+href=["']\/company\d+["'][^>]*>\s*<span[^>]*>([\s\S]*?)<\/span>\s*<\/a>/i
+  );
+  const rawCompany = companyFromLogo ?? companyFromLink;
+  const rawCity = matchTag(
+    mainHtml,
+    /<span[^>]+data-id=["']vacancy-city["'][^>]*>([\s\S]*?)<\/span>/i
+  );
+  const descriptionHtml = matchTag(
+    mainHtml,
+    /<div[^>]+id=["']description-wrap["'][^>]*>([\s\S]*?)<\/div>\s*<\/div>/i
+  );
+  const city = rawCity ? cleanText(rawCity) : null;
+  const companyName = rawCompany
+    ? cleanText(rawCompany).replace(/\s+—\s+robota\.ua$/i, "").replace(/^aбанк$/i, "абанк")
+    : null;
+  const cleanedSalary = cleanSalaryText(rawSalary, { title, companyName, city });
+  const descriptionText = cleanText([descriptionHtml ? stripHtml(descriptionHtml) : "", meta.parsed.descriptionText].filter(Boolean).join(" ")).slice(0, 14000);
+  const parsed = {
+    source: "Robota.ua" as const,
+    sourceUrl,
+    title: title ? cleanText(title) : null,
+    companyName,
+    city,
+    salaryText: cleanedSalary,
+    descriptionText,
+  };
+
+  return {
+    parsed,
+    parsedFrom: h1Tag ? "robota-main-block" : meta.parsedFrom,
+    rawTitle: title,
+    rawCompany,
+    rawCity,
+    rawSalary,
+    cleanedSalary,
+    mainTextPreview: stripHtml(mainHtml).slice(0, 500),
   };
 }
 
@@ -288,13 +549,13 @@ function extractManualSalary(lines: string[]): string | null {
     "Доход",
     "Salary",
   ]);
-  if (labeledSalary) return labeledSalary;
+  if (labeledSalary) return cleanSalaryText(labeledSalary);
 
   const moneyPattern =
     /(?:від\s*)?\d[\d\s]*(?:[-–—]\s*\d[\d\s]*)?\s*(?:грн|₴|uah)(?:\s*(?:на місяць|\/міс\.?|міс\.?|net|gross))?/i;
   for (const line of lines) {
     const match = moneyPattern.exec(line);
-    if (match?.[0]) return cleanText(match[0]);
+    if (match?.[0]) return cleanSalaryText(match[0]);
   }
   return null;
 }
@@ -347,49 +608,95 @@ async function loadCompanies(): Promise<CompanyRow[]> {
   return data as CompanyRow[];
 }
 
-function scoreCompany(company: CompanyRow, parsed: ParsedVacancy, rawInput: string): number {
-  const exactCompany = parsed.companyName?.trim().toLowerCase() ?? "";
-  const companyName = company.name.toLowerCase();
-  const haystack = [
-    rawInput,
-    parsed.title,
-    parsed.companyName,
-    parsed.descriptionText,
-  ].filter(Boolean).join(" ").toLowerCase();
-  const slugHaystack = slugifyCompanyName(haystack);
-  const aliases = ALIASES[company.slug] ?? [];
+function companyNamesForMatch(company: CompanyRow): string[] {
+  return [
+    company.name,
+    stripLegalSuffix(company.name),
+    company.slug,
+    slugifyCompanyName(company.name),
+    ...(ALIASES[company.slug] ?? []),
+  ].filter(Boolean);
+}
 
-  if (exactCompany && exactCompany === companyName) return 1000;
-  if (parsed.companyName && slugifyCompanyName(parsed.companyName) === company.slug) return 980;
-  if (slugHaystack.includes(company.slug)) return 900;
-  if (haystack.includes(companyName)) return 820;
-  if (aliases.some((alias) => haystack.includes(alias.toLowerCase()) || slugHaystack.includes(slugifyCompanyName(alias)))) {
-    return 780;
+function includesLookupPhrase(haystack: string, phrase: string): boolean {
+  const normalizedPhrase = normalizeLookupText(phrase);
+  if (!normalizedPhrase) return false;
+  const escaped = normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\s)${escaped}(\\s|$)`, "i").test(haystack);
+}
+
+function scoreCompany(
+  company: CompanyRow,
+  parsed: ParsedVacancy,
+  rawInput: string
+): { score: number; reason: string } {
+  const names = companyNamesForMatch(company);
+  const normalizedNames = names.map(normalizeLookupText).filter(Boolean);
+  const strippedNames = names.map(stripLegalSuffix).filter(Boolean);
+  const slugNames = names.map(slugifyCompanyName).filter(Boolean);
+  const extracted = parsed.companyName ? normalizeLookupText(parsed.companyName) : "";
+  const extractedStripped = parsed.companyName ? stripLegalSuffix(parsed.companyName) : "";
+  const extractedSlug = parsed.companyName ? slugifyCompanyName(parsed.companyName) : "";
+
+  if (parsed.companyName) {
+    if (normalizedNames.includes(extracted) || strippedNames.includes(extractedStripped)) {
+      return { score: 1000, reason: "extracted-company-exact" };
+    }
+    if (extractedSlug && slugNames.includes(extractedSlug)) {
+      return { score: 980, reason: "extracted-company-slug" };
+    }
+    if (
+      extractedStripped.length > 4 &&
+      strippedNames.some((name) => name.length > 4 && (extractedStripped.includes(name) || name.includes(extractedStripped)))
+    ) {
+      return { score: 900, reason: "extracted-company-contains" };
+    }
+    return { score: 0, reason: "extracted-company-mismatch" };
   }
 
-  const tokens = companyName
-    .split(/[\s\-_/]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
-  let matched = 0;
-  for (const token of tokens) {
-    const slugToken = slugifyCompanyName(token);
-    if (haystack.includes(token) || (slugToken && slugHaystack.includes(slugToken))) {
-      matched++;
+  if (!rawInput.trim()) {
+    return { score: 0, reason: "no-company-for-url" };
+  }
+
+  const normalizedRaw = normalizeLookupText(rawInput);
+  const strippedRaw = stripLegalSuffix(rawInput);
+  const rawSlug = slugifyCompanyName(rawInput);
+  if (normalizedNames.includes(normalizedRaw) || strippedNames.includes(strippedRaw) || slugNames.includes(rawSlug)) {
+    return { score: 850, reason: "manual-exact" };
+  }
+
+  const haystack = normalizeLookupText([rawInput, parsed.title].filter(Boolean).join(" "));
+  for (const name of names) {
+    const normalizedName = normalizeLookupText(name);
+    if (!normalizedName) continue;
+    if (isShortCompanyName(name)) continue;
+    if (includesLookupPhrase(haystack, normalizedName)) {
+      return { score: 650, reason: "manual-long-alias" };
     }
   }
 
-  if (matched >= 2) return 500 + matched * 25;
-  if (matched === 1 && tokens.length === 1) return 260;
-  return 0;
+  return { score: 0, reason: "no-confident-match" };
 }
 
-function matchCompany(companies: CompanyRow[], parsed: ParsedVacancy, rawInput: string): CompanyRow | null {
+function matchCompany(companies: CompanyRow[], parsed: ParsedVacancy, rawInput: string): CompanyMatchResult {
   const scored = companies
-    .map((company) => ({ company, score: scoreCompany(company, parsed, rawInput) }))
-    .filter((item) => item.score > 0)
+    .map((company) => {
+      const scoredCompany = scoreCompany(company, parsed, rawInput);
+      return { company, ...scoredCompany };
+    })
+    .filter((item) => item.score >= 600)
     .sort((a, b) => b.score - a.score);
-  return scored[0]?.company ?? null;
+  const candidates = scored.slice(0, 5).map((item) => ({
+    slug: item.company.slug,
+    name: item.company.name,
+    score: item.score,
+    reason: item.reason,
+  }));
+
+  return {
+    company: scored[0]?.company ?? null,
+    candidates,
+  };
 }
 
 async function loadReviewsSummary(companySlug: string) {
@@ -464,7 +771,7 @@ function analyzeRisk(parsed: ParsedVacancy, reviewRiskSignals: string[]) {
     ? [BOOKING_WARNING]
     : [];
   const factors = [...high, ...medium, ...reviewRiskSignals];
-  let riskScore = Math.min(100, high.length * 18 + medium.length * 8 + reviewRiskSignals.length * 6);
+  let riskScore = Math.min(100, high.length * 30 + medium.length * 8 + reviewRiskSignals.length * 6);
   riskScore = Math.max(0, riskScore - positives.length * 6);
 
   let riskLevel: RiskLevel = "unknown";
@@ -493,41 +800,102 @@ export async function POST(req: NextRequest) {
   }
 
   const detected = detectInput(input);
+  const sourceHost = detected.url?.hostname.replace(/^www\./, "") ?? null;
   let parsed = parseManualVacancy(input);
+  let parseResult: ParseResult = {
+    parsed,
+    parsedFrom: "manual",
+    rawTitle: parsed.title,
+    rawCompany: parsed.companyName,
+    rawCity: parsed.city,
+    rawSalary: parsed.salaryText,
+    cleanedSalary: parsed.salaryText,
+    mainTextPreview: parsed.descriptionText.slice(0, 500),
+  };
   let fallbackReason: string | null = null;
+  let fetchStatus: number | null = null;
   const warnings: string[] = [];
 
+  function manualTextResponse(message: string, status = 200) {
+    const payload = {
+      ok: false,
+      needsManualText: true,
+      inputType: detected.inputType,
+      message,
+      fallbackReason: message,
+      ...(process.env.NODE_ENV === "development"
+        ? {
+            debug: {
+              sourceHost,
+              parsedFrom: parseResult.parsedFrom,
+              fetchStatus,
+              rawTitle: parseResult.rawTitle,
+              rawCompany: parseResult.rawCompany,
+              rawCity: parseResult.rawCity,
+              rawSalary: parseResult.rawSalary,
+              cleanedSalary: parseResult.cleanedSalary,
+              mainTextPreview: parseResult.mainTextPreview,
+              companyMatchCandidates: [],
+            },
+          }
+        : {}),
+    };
+    return NextResponse.json(payload, { status });
+  }
+
   if (detected.url && (detected.inputType === "work.ua URL" || detected.inputType === "robota.ua URL")) {
-    const { html, fallbackReason: reason } = await fetchHtml(detected.url);
+    const { html, fallbackReason: reason, status } = await fetchHtml(detected.url);
     fallbackReason = reason;
+    fetchStatus = status;
     if (html) {
-      parsed = parseHtmlVacancy(html, detected.source, detected.url.toString());
+      parseResult = detected.inputType === "work.ua URL"
+        ? parseWorkUaVacancy(html, detected.url.toString())
+        : parseRobotaUaVacancy(html, detected.url.toString());
+      parsed = parseResult.parsed;
+      if (!parsed.title && !parsed.companyName && !parsed.city && !parsed.salaryText) {
+        return manualTextResponse(MANUAL_TEXT_MESSAGE);
+      }
     } else {
-      parsed = {
-        source: detected.source,
-        sourceUrl: detected.url.toString(),
-        title: null,
-        companyName: null,
-        city: null,
-        salaryText: null,
-        descriptionText: "",
+      parseResult = {
+        parsed: {
+          source: detected.source,
+          sourceUrl: detected.url.toString(),
+          title: null,
+          companyName: null,
+          city: null,
+          salaryText: null,
+          descriptionText: "",
+        },
+        parsedFrom: "fetch-failed",
+        rawTitle: null,
+        rawCompany: null,
+        rawCity: null,
+        rawSalary: null,
+        cleanedSalary: null,
+        mainTextPreview: "",
       };
+      return manualTextResponse(fallbackReason ?? MANUAL_TEXT_MESSAGE);
     }
   } else if (detected.url) {
-    fallbackReason = "Автоматичне зчитування підтримується тільки для Work.ua та Robota.ua. Вставте текст вакансії вручну.";
-    parsed = {
-      ...parsed,
-      source: "URL",
-      sourceUrl: detected.url.toString(),
+    fallbackReason = "Автоматичне зчитування підтримується тільки для Work.ua та Robota.ua. Скопіюйте текст вакансії вручну.";
+    parseResult = {
+      ...parseResult,
+      parsed: {
+        ...parsed,
+        source: "URL",
+        sourceUrl: detected.url.toString(),
+      },
+      parsedFrom: "unsupported-domain",
     };
-    warnings.push("Посилання не з Work.ua або Robota.ua, тому сторінку не завантажували.");
+    return manualTextResponse(fallbackReason);
   }
 
   if (fallbackReason) warnings.push(fallbackReason);
 
   const companies = await loadCompanies();
   const matchInput = detected.url ? "" : input;
-  const matchedCompany = matchCompany(companies, parsed, matchInput);
+  const companyMatch = matchCompany(companies, parsed, matchInput);
+  const matchedCompany = companyMatch.company;
   const internalReviews = matchedCompany
     ? await loadReviewsSummary(matchedCompany.slug)
     : { reviewCount: 0, averageRating: null, riskSignals: [], recentReviews: [] };
@@ -548,5 +916,21 @@ export async function POST(req: NextRequest) {
       warnings: [...risk.warnings, ...warnings],
     },
     fallbackReason,
+    ...(process.env.NODE_ENV === "development"
+      ? {
+          debug: {
+            sourceHost,
+            parsedFrom: parseResult.parsedFrom,
+            fetchStatus,
+            rawTitle: parseResult.rawTitle,
+            rawCompany: parseResult.rawCompany,
+            rawCity: parseResult.rawCity,
+            rawSalary: parseResult.rawSalary,
+            cleanedSalary: parseResult.cleanedSalary,
+            mainTextPreview: parseResult.mainTextPreview,
+            companyMatchCandidates: companyMatch.candidates,
+          },
+        }
+      : {}),
   });
 }

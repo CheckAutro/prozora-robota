@@ -76,10 +76,21 @@ interface VacancyReport {
   fallbackReason: string | null;
 }
 
+interface ManualTextNeededReport {
+  ok: false;
+  needsManualText: true;
+  inputType?: string;
+  message: string;
+  fallbackReason?: string | null;
+}
+
+type CheckVacancyResponse = VacancyReport | ManualTextNeededReport | { error?: string };
+
 type Stage =
   | { type: "idle" }
   | { type: "loading" }
   | { type: "result"; report: VacancyReport }
+  | { type: "manual-needed"; message: string }
   | { type: "error"; message: string };
 
 const RISK_META: Record<RiskLevel, { label: string; className: string }> = {
@@ -135,7 +146,16 @@ function detailValue(value: string | null | undefined): string {
 }
 
 function displayInputType(inputType: string): string {
-  return inputType === "text" || inputType === "company name" ? "Вручну" : inputType;
+  if (inputType === "work.ua URL") return "Work.ua";
+  if (inputType === "robota.ua URL") return "Robota.ua";
+  if (inputType === "text" || inputType === "company name") return "Вручну";
+  return inputType;
+}
+
+function dataStatus(inputType: string): string {
+  return inputType === "work.ua URL" || inputType === "robota.ua URL"
+    ? "Дані зчитано автоматично"
+    : "Дані введено вручну";
 }
 
 function DetailItem({
@@ -299,6 +319,18 @@ function VacancySummary({ report }: { report: VacancyReport }) {
           value={displayInputType(report.inputType)}
           icon={<Search className="h-3.5 w-3.5" />}
         />
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-xs font-medium">
+        <span className="rounded-full bg-brand-50 px-3 py-1 text-brand-700">
+          {dataStatus(report.inputType)}
+        </span>
+        <span className={cn(
+          "rounded-full px-3 py-1",
+          matchedCompany ? "bg-brand-50 text-brand-700" : "bg-ink/[0.04] text-ink-muted"
+        )}>
+          {matchedCompany ? "Компанію знайдено в базі" : "Компанію не знайдено"}
+        </span>
       </div>
 
       {matchedCompany ? (
@@ -496,6 +528,27 @@ function ResultReport({ report }: { report: VacancyReport }) {
   );
 }
 
+function ManualTextFallback({ message }: { message: string }) {
+  return (
+    <Card className="space-y-3 border-amber-200 bg-amber-50 p-6">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+        <div>
+          <h2 className="font-display text-lg font-bold text-ink">
+            Автоматичне зчитування не спрацювало
+          </h2>
+          <p className="mt-1 text-sm text-amber-800">
+            {message || "Скопіюйте текст вакансії з Work.ua або Robota.ua і вставте його вручну."}
+          </p>
+          <p className="mt-2 text-sm text-ink-soft">
+            Скопіюйте текст вакансії з Work.ua або Robota.ua і вставте його вручну.
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function VacancyCheckClient() {
   const searchParams = useSearchParams();
   const qParam = searchParams.get("q") ?? "";
@@ -517,9 +570,14 @@ export function VacancyCheckClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ input: q }),
       });
-      const data = await res.json() as VacancyReport | { error?: string };
+      const data = await res.json() as CheckVacancyResponse;
 
-      if (!res.ok || !("ok" in data)) {
+      if ("ok" in data && data.ok === false && data.needsManualText) {
+        setStage({ type: "manual-needed", message: data.message });
+        return;
+      }
+
+      if (!res.ok || !("ok" in data) || data.ok !== true) {
         const message =
           "error" in data && typeof data.error === "string"
             ? data.error
@@ -590,6 +648,10 @@ export function VacancyCheckClient() {
           <Loader2 className="h-4 w-4 animate-spin text-brand-600" />
           Аналізуємо вакансію та шукаємо компанію в базі…
         </div>
+      )}
+
+      {stage.type === "manual-needed" && (
+        <ManualTextFallback message={stage.message} />
       )}
 
       {stage.type === "error" && (
