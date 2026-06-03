@@ -105,12 +105,19 @@ export async function POST(req: NextRequest) {
   const status = VALID_STATUSES.has(body.status as ExternalRatingStatus)
     ? body.status
     : "needs_verification";
+  const isPublic = Boolean(body.is_public);
 
   if (ratingValue !== null && ratingValue < 0) {
     return NextResponse.json({ error: "rating_value must be positive" }, { status: 422 });
   }
   if (ratingScale <= 0) {
     return NextResponse.json({ error: "rating_scale must be greater than 0" }, { status: 422 });
+  }
+  if (isPublic && status !== "verified") {
+    return NextResponse.json(
+      { error: "is_public=true is allowed only for verified ratings" },
+      { status: 422 }
+    );
   }
 
   try {
@@ -127,7 +134,7 @@ export async function POST(req: NextRequest) {
         reviews_count: reviewsCount,
         fetched_at: fetchedAt,
         status,
-        is_public: Boolean(body.is_public),
+        is_public: isPublic,
         note: optionalString(body.note),
       })
       .select("*")

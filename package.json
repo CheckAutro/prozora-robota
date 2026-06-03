@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "import:companies:batch2": "npx ts-node --esm scripts/import-companies-batch-2.ts",
     "import:companies:500": "npx tsx scripts/import-companies-500.ts",
-    "check:companies": "npx tsx scripts/check-companies.ts"
+    "check:companies": "npx tsx scripts/check-companies.ts",
+    "export:external-ratings": "npx tsx scripts/export-external-ratings-template.ts",
+    "import:external-ratings": "npx tsx scripts/import-external-ratings.ts",
+    "check:external-ratings": "npx tsx scripts/check-external-ratings.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

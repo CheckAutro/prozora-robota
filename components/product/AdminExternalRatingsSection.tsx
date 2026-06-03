@@ -5,9 +5,11 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  Eye,
   EyeOff,
   Globe,
   Loader2,
+  PenLine,
   Plus,
   RefreshCw,
   Star,
@@ -57,6 +59,29 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat("uk-UA").format(value);
 }
 
+function toDateInput(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function toEditableForm(rating: ExternalRating) {
+  return {
+    company_slug: rating.companySlug,
+    company_name: rating.companyName,
+    source_name: rating.sourceName,
+    source_url: rating.sourceUrl ?? "",
+    rating_value: rating.ratingValue === null ? "" : String(rating.ratingValue),
+    rating_scale: rating.ratingScale === null ? "5" : String(rating.ratingScale),
+    reviews_count: String(rating.reviewsCount),
+    fetched_at: toDateInput(rating.fetchedAt),
+    note: rating.note ?? "",
+    status: rating.status,
+    is_public: rating.isPublic,
+  };
+}
+
 function RatingCard({
   rating,
   onUpdate,
@@ -67,12 +92,145 @@ function RatingCard({
   onDelete: (id: string) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => toEditableForm(rating));
   const statusMeta = STATUS_META[rating.status];
 
   async function act(patch: Record<string, unknown>) {
     setBusy(true);
     await onUpdate(rating.id, patch);
     setBusy(false);
+  }
+
+  async function saveEdit() {
+    setBusy(true);
+    await onUpdate(rating.id, draft);
+    setEditing(false);
+    setBusy(false);
+  }
+
+  if (editing) {
+    const inputCls = "w-full rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm focus-ring";
+
+    return (
+      <Card className="space-y-4 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-ink">Редагувати зовнішню оцінку</h3>
+          <button
+            type="button"
+            onClick={() => { setDraft(toEditableForm(rating)); setEditing(false); }}
+            className="text-xs text-ink-muted hover:text-ink"
+          >
+            Скасувати
+          </button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Slug компанії *</label>
+            <input
+              className={inputCls}
+              value={draft.company_slug}
+              onChange={(e) => setDraft({ ...draft, company_slug: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Назва компанії *</label>
+            <input
+              className={inputCls}
+              value={draft.company_name}
+              onChange={(e) => setDraft({ ...draft, company_name: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Джерело *</label>
+            <input
+              className={inputCls}
+              value={draft.source_name}
+              onChange={(e) => setDraft({ ...draft, source_name: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">URL джерела</label>
+            <input
+              className={inputCls}
+              value={draft.source_url}
+              onChange={(e) => setDraft({ ...draft, source_url: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Оцінка</label>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={draft.rating_value}
+              onChange={(e) => setDraft({ ...draft, rating_value: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Шкала</label>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={draft.rating_scale}
+              onChange={(e) => setDraft({ ...draft, rating_scale: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Кількість оцінок</label>
+            <input
+              className={inputCls}
+              inputMode="numeric"
+              value={draft.reviews_count}
+              onChange={(e) => setDraft({ ...draft, reviews_count: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Дата отримання</label>
+            <input
+              type="date"
+              className={inputCls}
+              value={draft.fetched_at}
+              onChange={(e) => setDraft({ ...draft, fetched_at: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink">Статус</label>
+            <select
+              className={inputCls}
+              value={draft.status}
+              onChange={(e) => setDraft({ ...draft, status: e.target.value as ExternalRatingStatus })}
+            >
+              <option value="needs_verification">На перевірці</option>
+              <option value="verified">Підтверджено</option>
+              <option value="rejected">Відхилено</option>
+            </select>
+          </div>
+          <label className="flex items-center gap-2 self-end rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              checked={draft.is_public}
+              onChange={(e) => setDraft({ ...draft, is_public: e.target.checked })}
+            />
+            Показувати публічно
+          </label>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink">Нотатка</label>
+          <textarea
+            className={inputCls}
+            rows={3}
+            value={draft.note}
+            onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+          />
+        </div>
+
+        <Button size="sm" disabled={busy} onClick={() => void saveEdit()}>
+          {busy ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Збереження…</> : "Зберегти зміни"}
+        </Button>
+      </Card>
+    );
   }
 
   return (
@@ -140,9 +298,17 @@ function RatingCard({
           size="sm"
           variant="primary"
           disabled={busy}
-          onClick={() => void act({ status: "verified", is_public: true })}
+          onClick={() => void act({ status: "verified" })}
         >
           <CheckCircle2 className="h-3.5 w-3.5" /> Підтвердити
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || rating.isPublic || rating.status !== "verified"}
+          onClick={() => void act({ is_public: true })}
+        >
+          <Eye className="h-3.5 w-3.5" /> Зробити публічною
         </Button>
         <Button
           size="sm"
@@ -151,6 +317,14 @@ function RatingCard({
           onClick={() => void act({ is_public: false })}
         >
           <EyeOff className="h-3.5 w-3.5" /> Приховати
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => { setDraft(toEditableForm(rating)); setEditing(true); }}
+        >
+          <PenLine className="h-3.5 w-3.5" /> Редагувати
         </Button>
         <Button
           size="sm"
@@ -400,7 +574,7 @@ export function AdminExternalRatingsSection({ accessToken }: { accessToken: stri
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display font-bold text-ink">Оцінки з відкритих джерел</h2>
+          <h2 className="font-display font-bold text-ink">Зовнішні оцінки</h2>
           <p className="mt-0.5 text-xs text-ink-muted">
             Окремі довідкові оцінки. Не додаються до відгуків і не впливають на
             внутрішній рейтинг.

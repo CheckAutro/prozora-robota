@@ -119,6 +119,9 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid status" }, { status: 422 });
     }
     update.status = body.status;
+    if (body.status !== "verified") {
+      update.is_public = false;
+    }
   }
 
   if ("is_public" in body) {
@@ -131,6 +134,34 @@ export async function PATCH(
 
   try {
     const client = getServiceClient();
+
+    if (update.is_public === true && "status" in update && update.status !== "verified") {
+      return NextResponse.json(
+        { error: "is_public=true is allowed only for verified ratings" },
+        { status: 422 }
+      );
+    }
+
+    if (update.is_public === true && update.status !== "verified") {
+      const { data: current, error: currentError } = await client
+        .from("external_ratings")
+        .select("status")
+        .eq("id", id)
+        .single();
+
+      if (currentError || !current) {
+        return NextResponse.json({ error: "Rating not found" }, { status: 404 });
+      }
+
+      const currentStatus = (current as { status?: string }).status;
+      if (currentStatus !== "verified") {
+        return NextResponse.json(
+          { error: "is_public=true is allowed only for verified ratings" },
+          { status: 422 }
+        );
+      }
+    }
+
     const { error } = await client
       .from("external_ratings")
       .update(update)
