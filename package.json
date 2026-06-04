@@ -24,7 +24,8 @@
     "enrich:companies": "npx tsx scripts/bulk-enrich-companies.ts",
     "export:company-discovery": "npx tsx scripts/export-company-discovery-template.ts",
     "import:company-discovery": "npx tsx scripts/import-company-discovery.ts",
-    "check:company-discovery": "npx tsx scripts/check-company-discovery.ts"
+    "check:company-discovery": "npx tsx scripts/check-company-discovery.ts",
+    "import:vacancy-urls": "npx tsx scripts/bulk-import-vacancy-urls.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

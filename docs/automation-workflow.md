@@ -79,6 +79,44 @@ npm run enrich:companies -- --limit=10 --auto-import-companies=true
 
 Сумнівні компанії залишаються у `company_discovery_queue` зі статусом `needs_review`.
 
+## Bulk import vacancy URLs
+
+Коли пошукові сторінки Work.ua / Robota.ua недоступні для звичайного fetch або повертають 403/captcha, використовується практичний fallback: імпорт готового списку URL вакансій. Скрипт не обходить захист, не логіниться і не використовує browser automation.
+
+TXT формат: один URL на рядок. CSV формат: `url`, `company_slug`, `company_name`, `source_name`, `note`; усі поля, крім `url`, опціональні. Якщо `company_slug` передано, він використовується як підказка, але компанія все одно перевіряється в `public.companies`.
+
+Шаблони:
+
+```bash
+data/vacancy-urls.txt
+data/vacancy-urls-template.csv
+```
+
+Dry-run без запису:
+
+```bash
+npm run import:vacancy-urls -- --file=data/vacancy-urls.txt --dry-run
+```
+
+Реальний імпорт:
+
+```bash
+npm run import:vacancy-urls -- --file=data/vacancy-urls.txt
+npm run import:vacancy-urls -- --file=data/vacancy-urls.csv --limit=100
+npm run import:vacancy-urls -- --file=data/vacancy-urls.csv --source=workua
+npm run import:vacancy-urls -- --file=data/vacancy-urls.csv --source=robotaua
+```
+
+Trusted facts з Work.ua / Robota.ua при впевненому збігу компанії зберігаються в `company_open_facts` як `status=verified` і `is_public=true`. Це публікує тільки заявлені умови з вакансії: зарплату, місто, графік, оформлення, умови, вимоги та опис. Скрипт не пише в `public.reviews`, не змінює внутрішній рейтинг і не збільшує кількість відгуків.
+
+Якщо компанію не знайдено, запис іде в `company_discovery_queue` зі статусом `needs_review`. Нові компанії не створюються автоматично, якщо явно не передати:
+
+```bash
+npm run import:vacancy-urls -- --file=data/vacancy-urls.csv --auto-import-companies=true
+```
+
+Навіть з цим прапорцем імпорт створює компанію тільки для trusted source, вільного slug і достатніх фактів. Сумнівні збіги залишаються в черзі. `external_review_signals` не створюються і не публікуються автоматично через цей workflow.
+
 ## CSV workflow для company discovery
 
 ```bash
