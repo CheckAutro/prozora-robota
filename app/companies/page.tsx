@@ -7,6 +7,7 @@ import {
   getIndustriesFromList,
   getPublishedReviewMetrics,
 } from "@/lib/company-service";
+import { getPublicExternalRatingSummaries } from "@/lib/external-ratings-service";
 
 export const metadata: Metadata = {
   title: "Відгуки про роботодавців — Прозора робота",
@@ -19,10 +20,11 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function CompaniesPage() {
-  // Fetch companies and review metrics in parallel.
-  const [companies, metrics] = await Promise.all([
+  // Fetch companies, internal review metrics, and external rating summaries in parallel.
+  const [companies, metrics, externalRatingSummaries] = await Promise.all([
     getCompanyList(),
     getPublishedReviewMetrics(),
+    getPublicExternalRatingSummaries(),
   ]);
 
   const cities = getCitiesFromList(companies);
@@ -35,6 +37,7 @@ export default async function CompaniesPage() {
         cities={cities}
         industries={industries}
         metrics={metrics}
+        externalRatingSummaries={externalRatingSummaries}
       />
     </Suspense>
   );

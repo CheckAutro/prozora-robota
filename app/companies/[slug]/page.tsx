@@ -164,13 +164,13 @@ export default async function CompanyPage({
           </div>
         </Card>
         <section className="space-y-3">
-          <h2 className="font-display text-lg font-bold text-ink">Відгуки</h2>
+          <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
           <CompanyReviewsSection
             companySlug={mockFallback.slug}
             companyName={mockFallback.name}
           />
           <p className="text-xs text-ink-muted">
-            Відгуки публікуються анонімно після модерації.
+            Тільки ці опубліковані відгуки впливають на внутрішню оцінку Прозора робота.
           </p>
         </section>
         <ExternalRatingsSection ratings={externalRatings} />
@@ -214,13 +214,13 @@ export default async function CompanyPage({
 
       {/* Reviews: summary + ratings + risks + geo/roles + list (all from Supabase) */}
       <section className="space-y-3">
-        <h2 className="font-display text-lg font-bold text-ink">Відгуки</h2>
+        <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
         <CompanyReviewsSection
           companySlug={sbCompany.slug}
           companyName={sbCompany.name}
         />
         <p className="text-xs text-ink-muted">
-          Відгуки публікуються анонімно після модерації.
+          Тільки ці опубліковані відгуки впливають на внутрішню оцінку Прозора робота.
         </p>
       </section>
 

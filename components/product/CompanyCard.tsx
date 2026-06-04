@@ -5,6 +5,23 @@ import { Button } from "@/components/ui/Button";
 import { normalizeIndustry } from "@/lib/industry";
 import type { Company } from "@/lib/types";
 import type { SupabaseCompany, ReviewMetrics } from "@/lib/company-service";
+import type { ExternalRatingSummary } from "@/lib/external-ratings-service";
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("uk-UA").format(value);
+}
+
+function formatReviewWord(count: number): string {
+  if (count === 1) return "відгук";
+  if (count >= 2 && count <= 4) return "відгуки";
+  return "відгуків";
+}
+
+function formatSourceWord(count: number): string {
+  if (count === 1) return "джерело";
+  if (count >= 2 && count <= 4) return "джерела";
+  return "джерел";
+}
 
 // ── Shared inner card ─────────────────────────────────────────────────────────
 
@@ -14,14 +31,30 @@ function CompanyCardInner({
   city,
   industry,
   metrics,
+  externalRatingSummary,
 }: {
   slug: string;
   name: string;
   city: string | null;
   industry: string | null;
   metrics?: ReviewMetrics | null;
+  externalRatingSummary?: ExternalRatingSummary | null;
 }) {
   const normIndustry = normalizeIndustry(industry);
+  const externalSources = externalRatingSummary?.sources.join(" · ") ?? "";
+  const externalDetails = externalRatingSummary
+    ? [
+        externalRatingSummary.averageRating !== null
+          ? `${externalRatingSummary.averageRating.toFixed(1)} / 5`
+          : null,
+        externalSources || `${externalRatingSummary.sourceCount} ${formatSourceWord(externalRatingSummary.sourceCount)}`,
+        externalRatingSummary.totalRatingsCount !== null
+          ? `${formatNumber(externalRatingSummary.totalRatingsCount)} оцінок`
+          : externalSources
+            ? `${externalRatingSummary.sourceCount} ${formatSourceWord(externalRatingSummary.sourceCount)}`
+            : null,
+      ].filter(Boolean).join(" · ")
+    : null;
 
   return (
     <Card className="flex flex-col gap-4 p-5 transition-shadow hover:shadow-card-hover">
@@ -46,24 +79,37 @@ function CompanyCardInner({
         </div>
       </div>
 
-      {/* Metrics from real published reviews only */}
-      {metrics && metrics.reviewCount > 0 ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
-          <span className="inline-flex items-center gap-1">
-            <MessageSquare className="h-3.5 w-3.5" />
-            {metrics.reviewCount}{" "}
-            {metrics.reviewCount === 1 ? "відгук" : "відгуків"}
+      <div className="space-y-2 rounded-xl bg-ink/[0.025] px-3 py-3 text-sm">
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
+          <span className="inline-flex items-center gap-1 font-semibold text-ink">
+            <MessageSquare className="h-3.5 w-3.5 text-brand-600" />
+            Прозора робота:
           </span>
-          {metrics.averageRating !== null && (
-            <span className="inline-flex items-center gap-1">
-              <Star className="h-3.5 w-3.5 text-amber-400" />
-              {metrics.averageRating.toFixed(1)} / 5
+          {metrics && metrics.reviewCount > 0 && metrics.averageRating !== null ? (
+            <span>
+              {metrics.averageRating.toFixed(1)} / 5 · {formatNumber(metrics.reviewCount)} {formatReviewWord(metrics.reviewCount)}
             </span>
+          ) : (
+            <span>недостатньо відгуків</span>
           )}
-        </div>
-      ) : (
-        <p className="text-sm text-ink-muted">Поки недостатньо відгуків</p>
-      )}
+        </p>
+
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
+          <span className="inline-flex items-center gap-1 font-semibold text-ink">
+            <Star className="h-3.5 w-3.5 text-amber-400" />
+            Відкриті джерела:
+          </span>
+          {externalDetails ? (
+            <span>{externalDetails}</span>
+          ) : (
+            <span>поки немає підтверджених оцінок</span>
+          )}
+        </p>
+
+        <p className="text-xs text-ink-muted">
+          Зовнішні оцінки не впливають на рейтинг Прозора робота.
+        </p>
+      </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-ink/[0.06] pt-4">
         <span className="text-xs text-ink-muted">
@@ -93,9 +139,11 @@ function CompanyCardInner({
 export function CompanyCard({
   company,
   metrics,
+  externalRatingSummary,
 }: {
   company: Company;
   metrics?: ReviewMetrics | null;
+  externalRatingSummary?: ExternalRatingSummary | null;
 }) {
   return (
     <CompanyCardInner
@@ -104,6 +152,7 @@ export function CompanyCard({
       city={company.city}
       industry={company.industry}
       metrics={metrics}
+      externalRatingSummary={externalRatingSummary}
     />
   );
 }
@@ -115,9 +164,11 @@ export function CompanyCard({
 export function CompanyCardSlim({
   company,
   metrics,
+  externalRatingSummary,
 }: {
   company: SupabaseCompany;
   metrics?: ReviewMetrics | null;
+  externalRatingSummary?: ExternalRatingSummary | null;
 }) {
   return (
     <CompanyCardInner
@@ -126,6 +177,7 @@ export function CompanyCardSlim({
       city={company.city ?? null}
       industry={company.industry ?? null}
       metrics={metrics}
+      externalRatingSummary={externalRatingSummary}
     />
   );
 }

@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { slugifyCompanyName } from "@/lib/slugify";
 import { normalizeIndustry } from "@/lib/industry";
 import type { CompanyListItem, ReviewMetricsBySlug } from "@/lib/company-service";
+import type { ExternalRatingSummaryBySlug } from "@/lib/external-ratings-service";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,8 @@ interface Props {
   industries: string[];
   /** Per-slug review metrics from Supabase, computed server-side. */
   metrics: ReviewMetricsBySlug;
+  /** Per-slug public external rating summaries, computed server-side. */
+  externalRatingSummaries: ExternalRatingSummaryBySlug;
 }
 
 // ── Search helpers (preserved from previous version) ─────────────────────────
@@ -87,7 +90,13 @@ function FilterChip({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function CompaniesClient({ companies, cities, industries, metrics }: Props) {
+export function CompaniesClient({
+  companies,
+  cities,
+  industries,
+  metrics,
+  externalRatingSummaries,
+}: Props) {
   const [query, setQuery]                           = useState("");
   const [city, setCity]                             = useState("all");
   const [industry, setIndustry]                     = useState("all");
@@ -308,12 +317,14 @@ export function CompaniesClient({ companies, cities, industries, metrics }: Prop
                 key={item.data.id}
                 company={item.data}
                 metrics={metrics[item.data.slug] ?? null}
+                externalRatingSummary={externalRatingSummaries[item.data.slug] ?? null}
               />
             ) : (
               <CompanyCardSlim
                 key={item.data.id}
                 company={item.data}
                 metrics={metrics[item.data.slug] ?? null}
+                externalRatingSummary={externalRatingSummaries[item.data.slug] ?? null}
               />
             )
           )}

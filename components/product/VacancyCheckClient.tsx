@@ -72,6 +72,7 @@ interface VacancyRiskReport {
 
 type ProStatus = "clear" | "unclear" | "suspicious" | "risky";
 type FinalVerdictLevel = "safe_to_apply" | "apply_with_caution" | "avoid";
+type BriefTone = "positive" | "warning" | "danger" | "neutral";
 
 interface FreeSummary {
   mainConclusion: string;
@@ -117,10 +118,26 @@ interface ProPreview {
   };
 }
 
+interface VacancyBriefStatus {
+  label: string;
+  tone: BriefTone;
+  text: string;
+}
+
+interface VacancyBrief {
+  salaryStatus: VacancyBriefStatus;
+  employmentStatus: VacancyBriefStatus;
+  scheduleStatus: VacancyBriefStatus;
+  riskPhrases: string[];
+  questionsToAsk: string[];
+  shortVerdict: string;
+}
+
 interface VacancyAnalysis {
   freeSummary: FreeSummary;
   companyInsight: CompanyInsight;
   proPreview: ProPreview;
+  vacancyBrief: VacancyBrief;
 }
 
 interface VacancyReport {
@@ -187,6 +204,25 @@ const PRO_STATUS_META: Record<ProStatus, { label: string; className: string }> =
   risky: {
     label: "Ризиково",
     className: "border-red-200 bg-red-50 text-red-700",
+  },
+};
+
+const BRIEF_TONE_META: Record<BriefTone, { className: string; dotClassName: string }> = {
+  positive: {
+    className: "border-brand-200 bg-brand-50 text-brand-800",
+    dotClassName: "bg-brand-500",
+  },
+  warning: {
+    className: "border-amber-200 bg-amber-50 text-amber-800",
+    dotClassName: "bg-amber-400",
+  },
+  danger: {
+    className: "border-red-200 bg-red-50 text-red-800",
+    dotClassName: "bg-red-500",
+  },
+  neutral: {
+    className: "border-ink/10 bg-ink/[0.04] text-ink-soft",
+    dotClassName: "bg-ink-muted",
   },
 };
 
@@ -430,6 +466,81 @@ function FreeSummarySection({ summary }: { summary: FreeSummary }) {
       <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-800">
         {summary.applyAdvice}
       </p>
+    </Card>
+  );
+}
+
+function VacancyBriefStatusCard({
+  title,
+  status,
+}: {
+  title: string;
+  status: VacancyBriefStatus;
+}) {
+  const tone = BRIEF_TONE_META[status.tone];
+
+  return (
+    <div className={cn("rounded-xl border p-4", tone.className)}>
+      <div className="mb-2 flex items-center gap-2">
+        <span className={cn("h-2 w-2 shrink-0 rounded-full", tone.dotClassName)} />
+        <h4 className="text-sm font-semibold">{title}</h4>
+      </div>
+      <p className="text-sm font-semibold">{status.label}</p>
+      <p className="mt-1 text-xs leading-relaxed opacity-85">{status.text}</p>
+    </div>
+  );
+}
+
+function VacancyBriefSection({ brief }: { brief: VacancyBrief }) {
+  return (
+    <Card className="space-y-5 p-6">
+      <div>
+        <h3 className="font-display text-lg font-bold text-ink">
+          Короткий аналіз вакансії
+        </h3>
+        <p className="mt-1 text-sm text-ink-soft">
+          Безкоштовний первинний аналіз ключових умов з тексту вакансії.
+        </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <VacancyBriefStatusCard title="Зарплата" status={brief.salaryStatus} />
+        <VacancyBriefStatusCard title="Оформлення" status={brief.employmentStatus} />
+        <VacancyBriefStatusCard title="Графік" status={brief.scheduleStatus} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-amber-700">
+            <AlertTriangle className="h-4 w-4" />
+            Ризикові формулювання
+          </h4>
+          <SignalList
+            tone="warning"
+            items={brief.riskPhrases.slice(0, 3)}
+            emptyText="Критичних формулювань не знайдено."
+          />
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-brand-700">
+            <CircleHelp className="h-4 w-4" />
+            Що уточнити
+          </h4>
+          <ul className="space-y-2">
+            {brief.questionsToAsk.slice(0, 5).map((question) => (
+              <li key={question} className="text-sm leading-relaxed text-ink-soft">
+                {question}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-ink/[0.03] px-4 py-3">
+        <h4 className="mb-1 text-sm font-semibold text-ink">Висновок</h4>
+        <p className="text-sm leading-relaxed text-ink-soft">{brief.shortVerdict}</p>
+      </div>
     </Card>
   );
 }
@@ -772,6 +883,7 @@ function ResultReport({ report }: { report: VacancyReport }) {
   return (
     <div className="space-y-5">
       <VacancySummary report={report} />
+      <VacancyBriefSection brief={report.analysis.vacancyBrief} />
       <FreeSummarySection summary={report.analysis.freeSummary} />
       <CompanySection
         company={report.matchedCompany}
