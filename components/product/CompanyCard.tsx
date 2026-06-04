@@ -68,9 +68,10 @@ function CompanyCardInner({
     externalReviewSignalSummary && externalReviewSignalSummary.signalCount > 0
   );
   const vacancyDetails = hasOpenFacts
-    ? openFactSummary?.sources.length
-      ? `є дані з ${openFactSummary.sources.slice(0, 3).join(" / ")}`
-      : `${openFactSummary?.factsCount ?? 0} відкриті джерела`
+    ? [
+        openFactSummary?.sources.length ? openFactSummary.sources.slice(0, 3).join(" / ") : null,
+        `${openFactSummary?.factsCount ?? 0} вакансій`,
+      ].filter(Boolean).join(" · ")
     : null;
   const hasAnyExternalData = hasExternalRatings || hasOpenFacts || hasExternalReviewSignals;
   const analysisText = hasReviews && hasAnyExternalData

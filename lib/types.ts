@@ -223,6 +223,40 @@ export interface CompanyOpenFact {
   updatedAt: string;
 }
 
+// ── Company discovery queue ──────────────────────────────────────────────────
+// Candidate companies discovered from open sources.
+// NEVER mixed with public.reviews and never affects ratings or review counts.
+
+export type CompanyDiscoveryMatchConfidence = "low" | "medium" | "high";
+
+export type CompanyDiscoveryStatus =
+  | "needs_review"
+  | "auto_imported"
+  | "matched_existing"
+  | "rejected";
+
+export interface CompanyDiscoveryQueueItem {
+  id: string;
+  discoveredName: string;
+  suggestedSlug: string;
+  sourceName: string;
+  sourceUrl: string | null;
+  city: string | null;
+  industry: string | null;
+  description: string | null;
+  companySize: string | null;
+  matchedExistingSlug: string | null;
+  matchConfidence: CompanyDiscoveryMatchConfidence;
+  status: CompanyDiscoveryStatus;
+  isImported: boolean;
+  importedCompanySlug: string | null;
+  rawExcerpt: string | null;
+  collectedAt: string | null;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── External review signals ─────────────────────────────────────────────────
 // Admin-verified short summaries of what external reviews are saying.
 // NEVER mixed with public.reviews, external_ratings, company_open_facts, or

@@ -19,7 +19,12 @@
     "publish:trusted-company-open-facts": "npx tsx scripts/publish-trusted-company-open-facts.ts",
     "export:external-review-signals": "npx tsx scripts/export-external-review-signals-template.ts",
     "import:external-review-signals": "npx tsx scripts/import-external-review-signals.ts",
-    "check:external-review-signals": "npx tsx scripts/check-external-review-signals.ts"
+    "check:external-review-signals": "npx tsx scripts/check-external-review-signals.ts",
+    "discover:vacancies": "npx tsx scripts/bulk-discover-vacancies.ts",
+    "enrich:companies": "npx tsx scripts/bulk-enrich-companies.ts",
+    "export:company-discovery": "npx tsx scripts/export-company-discovery-template.ts",
+    "import:company-discovery": "npx tsx scripts/import-company-discovery.ts",
+    "check:company-discovery": "npx tsx scripts/check-company-discovery.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

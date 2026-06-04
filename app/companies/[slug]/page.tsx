@@ -306,6 +306,47 @@ function ExternalReviewSignalsSection({
   );
 }
 
+function CompanyDescriptionSection({
+  facts,
+}: {
+  facts: CompanyOpenFact[];
+}) {
+  const fact = facts.find((item) => item.companyDescription);
+
+  return (
+    <Card className="space-y-3 p-6">
+      <div>
+        <h2 className="font-display text-lg font-bold text-ink">Опис компанії</h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          Опис формується тільки з відкритих джерел або підтверджених даних. Він не є відгуком працівника і не впливає на рейтинг.
+        </p>
+      </div>
+
+      {!fact?.companyDescription ? (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Опис компанії поки не додано.
+        </p>
+      ) : (
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
+          <p className="text-sm leading-relaxed text-ink-soft">{fact.companyDescription}</p>
+          <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+            <span>Джерело: {fact.sourceName}</span>
+            <span>зібрано: {formatDate(fact.collectedAt)}</span>
+            {fact.sourceUrl && (
+              <a href={fact.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-700">
+                Відкрити джерело
+              </a>
+            )}
+          </p>
+          <p className="mt-3 rounded-lg bg-ink/[0.03] px-3 py-2 text-xs text-ink-muted">
+            Опис сформовано на основі відкритих джерел. Це не є відгуком працівника і не впливає на рейтинг.
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function TextPills({ label, values }: { label: string; values: string[] }) {
   if (values.length === 0) return null;
   return (
@@ -721,6 +762,7 @@ export default async function CompanyPage({
             </Button>
           </div>
         </Card>
+        <CompanyDescriptionSection facts={openFacts} />
         <CompanyShortAnalysis
           companyName={mockFallback.name}
           industry={fallbackIndustry}
@@ -800,6 +842,8 @@ export default async function CompanyPage({
           </Button>
         </div>
       </Card>
+
+      <CompanyDescriptionSection facts={openFacts} />
 
       <CompanyShortAnalysis
         companyName={sbCompany.name}

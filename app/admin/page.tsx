@@ -15,6 +15,7 @@ import { AdminSignalsSection } from "@/components/product/AdminSignalsSection";
 import { AdminExternalRatingsSection } from "@/components/product/AdminExternalRatingsSection";
 import { AdminExternalReviewSignalsSection } from "@/components/product/AdminExternalReviewSignalsSection";
 import { AdminCompanyOpenFactsSection } from "@/components/product/AdminCompanyOpenFactsSection";
+import { AdminCompanyDiscoverySection } from "@/components/product/AdminCompanyDiscoverySection";
 import type { Review, ReviewStatus } from "@/lib/types";
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -367,6 +368,11 @@ export default function AdminPage() {
       {/* External review signals */}
       <div className="border-t border-ink/[0.06] pt-8">
         {accessToken && <AdminExternalReviewSignalsSection accessToken={accessToken} />}
+      </div>
+
+      {/* New company discovery */}
+      <div className="border-t border-ink/[0.06] pt-8">
+        {accessToken && <AdminCompanyDiscoverySection accessToken={accessToken} />}
       </div>
 
       {/* Open vacancy facts */}
