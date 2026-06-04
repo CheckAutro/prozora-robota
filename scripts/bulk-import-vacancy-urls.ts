@@ -1,5 +1,5 @@
 // scripts/bulk-import-vacancy-urls.ts
-// Imports a curated list of Work.ua / Robota.ua vacancy URLs into company_open_facts.
+// Imports a curated list of Work.ua / Robota.ua vacancy URLs into non-public company_open_facts.
 // No browser automation, no login/captcha bypass, no paid APIs, no AI APIs.
 
 import { existsSync, readFileSync } from "node:fs";
@@ -40,12 +40,16 @@ interface VacancyUrlInput {
 }
 
 interface ImportStats {
+  totalUrls: number;
   processedUrls: number;
   validUrls: number;
   factsInserted: number;
   factsUpdated: number;
+  reviewSignalsImported: number;
+  nonPublicCreated: number;
   wouldInsert: number;
   wouldUpdate: number;
+  wouldCreateNonPublic: number;
   newCompaniesQueued: number;
   wouldQueueNewCompanies: number;
   companiesAutoImported: number;
@@ -62,12 +66,16 @@ interface ImportError {
 }
 
 const stats: ImportStats = {
+  totalUrls: 0,
   processedUrls: 0,
   validUrls: 0,
   factsInserted: 0,
   factsUpdated: 0,
+  reviewSignalsImported: 0,
+  nonPublicCreated: 0,
   wouldInsert: 0,
   wouldUpdate: 0,
+  wouldCreateNonPublic: 0,
   newCompaniesQueued: 0,
   wouldQueueNewCompanies: 0,
   companiesAutoImported: 0,
@@ -320,7 +328,10 @@ async function saveOpenFact(
   const existed = await sourceUrlExists(client, company.slug, parsed.sourceUrl);
   if (args.dryRun) {
     if (existed) stats.wouldUpdate += 1;
-    else stats.wouldInsert += 1;
+    else {
+      stats.wouldInsert += 1;
+      stats.wouldCreateNonPublic += 1;
+    }
     return;
   }
 
@@ -348,13 +359,16 @@ async function saveOpenFact(
     mentions_probation: parsed.mentionsProbation,
     mentions_bonus: parsed.mentionsBonus,
     raw_excerpt: parsed.descriptionText.slice(0, 2000),
-    status: "verified",
-    is_public: true,
+    status: "needs_verification",
+    is_public: false,
   });
 
   if (result.ok) {
     if (existed) stats.factsUpdated += 1;
-    else stats.factsInserted += 1;
+    else {
+      stats.factsInserted += 1;
+      stats.nonPublicCreated += 1;
+    }
   } else {
     stats.errors += 1;
     errors.push({ url: parsed.sourceUrl, reason: result.error });
@@ -402,13 +416,21 @@ async function processInput(
 
 function printReport(args: Args) {
   console.log("Bulk vacancy URL import report");
+  console.log("total URLs:", stats.totalUrls);
   console.log("processed urls:", stats.processedUrls);
   console.log("valid urls:", stats.validUrls);
+  console.log("imported open facts:", stats.factsInserted + stats.factsUpdated);
+  console.log("imported review signals:", stats.reviewSignalsImported);
+  console.log("skipped duplicates:", stats.skippedDuplicate);
+  console.log("failed URLs:", errors.length);
+  console.log("non-public created count:", stats.nonPublicCreated);
   console.log("facts inserted:", stats.factsInserted);
   console.log("facts updated:", stats.factsUpdated);
   if (args.dryRun) {
+    console.log("would import open facts:", stats.wouldInsert + stats.wouldUpdate);
     console.log("would insert:", stats.wouldInsert);
     console.log("would update:", stats.wouldUpdate);
+    console.log("would create non-public records:", stats.wouldCreateNonPublic);
     console.log("would queue new companies:", stats.wouldQueueNewCompanies);
   }
   console.log("new companies queued:", stats.newCompaniesQueued);
@@ -429,6 +451,7 @@ export async function runBulkVacancyUrlImport(argv = process.argv.slice(2)) {
   loadEnvLocal();
   const args = parseArgs(argv);
   const inputs = loadInputs(args.file, args.limit);
+  stats.totalUrls = inputs.length;
   const seen = new Set<string>();
   const uniqueInputs: VacancyUrlInput[] = [];
 
