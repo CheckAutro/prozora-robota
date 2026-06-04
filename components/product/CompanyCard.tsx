@@ -55,6 +55,12 @@ function CompanyCardInner({
             : null,
       ].filter(Boolean).join(" · ")
     : null;
+  const hasReviews = Boolean(metrics && metrics.reviewCount > 0);
+  const analysisText = hasReviews
+    ? "є відгуки на Прозора робота"
+    : externalRatingSummary
+      ? "є зовнішні оцінки, але мало відгуків"
+      : "поки недостатньо даних";
 
   return (
     <Card className="flex flex-col gap-4 p-5 transition-shadow hover:shadow-card-hover">
@@ -109,18 +115,14 @@ function CompanyCardInner({
         <p className="text-xs text-ink-muted">
           Зовнішні оцінки не впливають на рейтинг Прозора робота.
         </p>
+
+        <p className="text-xs font-medium text-ink-soft">
+          <span className="font-semibold text-ink">Аналіз:</span> {analysisText}
+        </p>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-ink/[0.06] pt-4">
-        <span className="text-xs text-ink-muted">
-          {metrics && metrics.reviewCount > 0
-            ? metrics.hasHighRating
-              ? "Загалом позитивні відгуки"
-              : metrics.hasRisks
-              ? "Є сигнали ризику"
-              : "Відгуки наявні"
-            : "Рівень довіри: недостатньо даних"}
-        </span>
+        <span className="text-xs text-ink-muted">Деталі доступні на сторінці компанії.</span>
         <Button href={`/companies/${slug}`} variant="outline" size="sm">
           Переглянути <ChevronRight className="h-4 w-4" />
         </Button>

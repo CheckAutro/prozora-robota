@@ -134,6 +134,21 @@ export interface ReviewMetrics {
 /** Per-slug map returned by getPublishedReviewMetrics(). */
 export type ReviewMetricsBySlug = Record<string, ReviewMetrics>;
 
+export interface PublishedCompanyReviewFacts {
+  reviewCount: number;
+  averageInternalRating: number | null;
+  salaryAverage: number | null;
+  scheduleAverage: number | null;
+  salaryMatchCounts: Record<string, number>;
+  employmentCounts: Record<string, number>;
+  bookingCounts: Record<string, number>;
+  paymentDelayCounts: Record<string, number>;
+  hasSalaryData: boolean;
+  hasEmploymentData: boolean;
+  hasScheduleData: boolean;
+  hasBookingData: boolean;
+}
+
 // The columns we SELECT from reviews to compute metrics.
 // We keep this minimal to avoid fetching large text fields.
 const REVIEW_SELECT =
@@ -231,5 +246,108 @@ export async function getPublishedReviewMetrics(): Promise<ReviewMetricsBySlug> 
   } catch (err) {
     console.warn("[company-service] review metrics exception:", err);
     return {};
+  }
+}
+
+function bumpCount(counts: Record<string, number>, value: unknown) {
+  const key = typeof value === "string" && value.trim() ? value : "unknown";
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function average(values: number[]): number | null {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/**
+ * Fetches factual signals from published reviews for one company page.
+ * This does not read pending/rejected reviews and does not touch external ratings.
+ */
+export async function getPublishedCompanyReviewFacts(
+  companySlug: string
+): Promise<PublishedCompanyReviewFacts> {
+  const empty: PublishedCompanyReviewFacts = {
+    reviewCount: 0,
+    averageInternalRating: null,
+    salaryAverage: null,
+    scheduleAverage: null,
+    salaryMatchCounts: {},
+    employmentCounts: {},
+    bookingCounts: {},
+    paymentDelayCounts: {},
+    hasSalaryData: false,
+    hasEmploymentData: false,
+    hasScheduleData: false,
+    hasBookingData: false,
+  };
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  if (!url || !key) return empty;
+
+  try {
+    const client = getServerClient();
+    const { data, error } = await client
+      .from("reviews")
+      .select("ratings, salary_match, official_employment, booking_received, booking_promised, payment_delay")
+      .eq("company_slug", companySlug)
+      .eq("status", "published");
+
+    if (error || !data) {
+      console.warn("[company-service] company review facts query failed:", error?.message);
+      return empty;
+    }
+
+    const allRatings: number[] = [];
+    const salaryRatings: number[] = [];
+    const scheduleRatings: number[] = [];
+    const salaryMatchCounts: Record<string, number> = {};
+    const employmentCounts: Record<string, number> = {};
+    const bookingCounts: Record<string, number> = {};
+    const paymentDelayCounts: Record<string, number> = {};
+
+    for (const row of data) {
+      const r = row as {
+        ratings: Record<string, unknown> | null;
+        salary_match: string | null;
+        official_employment: string | null;
+        booking_received: string | null;
+        booking_promised: string | null;
+        payment_delay: string | null;
+      };
+      const ratings = r.ratings ?? {};
+
+      for (const key of RATING_KEYS) {
+        const value = ratings[key];
+        if (typeof value === "number" && !Number.isNaN(value)) {
+          allRatings.push(value);
+          if (key === "salary") salaryRatings.push(value);
+          if (key === "schedule") scheduleRatings.push(value);
+        }
+      }
+
+      bumpCount(salaryMatchCounts, r.salary_match);
+      bumpCount(employmentCounts, r.official_employment);
+      bumpCount(bookingCounts, r.booking_received ?? r.booking_promised);
+      bumpCount(paymentDelayCounts, r.payment_delay);
+    }
+
+    return {
+      reviewCount: data.length,
+      averageInternalRating: average(allRatings),
+      salaryAverage: average(salaryRatings),
+      scheduleAverage: average(scheduleRatings),
+      salaryMatchCounts,
+      employmentCounts,
+      bookingCounts,
+      paymentDelayCounts,
+      hasSalaryData: salaryRatings.length > 0 || Object.keys(salaryMatchCounts).some((key) => key !== "unknown"),
+      hasEmploymentData: Object.keys(employmentCounts).some((key) => key !== "unknown"),
+      hasScheduleData: scheduleRatings.length > 0,
+      hasBookingData: Object.keys(bookingCounts).some((key) => key !== "unknown" && key !== "not_applicable"),
+    };
+  } catch (err) {
+    console.warn("[company-service] company review facts exception:", err);
+    return empty;
   }
 }

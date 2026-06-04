@@ -1050,7 +1050,7 @@ function buildSalaryPreview(parsed: ParsedVacancy): ProPreviewSection {
   if (!salary) {
     return {
       status: "unclear",
-      summary: "Зарплата або фіксована частина не визначена з тексту вакансії.",
+      summary: "Недостатньо даних про зарплату або фіксовану частину.",
       questions: uniqueItems(questions),
     };
   }
@@ -1087,7 +1087,7 @@ function buildEmploymentPreview(parsed: ParsedVacancy): ProPreviewSection {
       ? "У тексті є ризикові формулювання щодо оформлення."
       : clear
         ? "У вакансії згадується офіційне працевлаштування або оформлення."
-        : "У тексті не вдалося визначити, чи є офіційне оформлення.",
+        : "Недостатньо даних про офіційне оформлення.",
     questions: [
       "Чи є офіційне оформлення з першого дня?",
       "Який тип договору?",
@@ -1107,7 +1107,7 @@ function buildSchedulePreview(parsed: ParsedVacancy): ProPreviewSection {
       ? "У тексті є ознаки підвищеного навантаження або нечіткого графіку."
       : clear
         ? "Графік або тип зайнятості описаний у тексті."
-        : "Чіткий графік не визначений автоматично.",
+        : "Недостатньо даних про графік і навантаження.",
     questions: [
       "Який точний графік?",
       "Як оплачуються понаднормові?",
@@ -1165,12 +1165,26 @@ function buildProPreview(
       : []),
   ];
   const missingSalaryOrEmployment = salary.status === "unclear" || employment.status === "unclear" || employment.status === "risky";
-  const verdictLevel: FinalVerdictLevel =
-    risk.riskLevel === "high" || risk.criticalWarnings.length >= 2
-      ? "avoid"
-      : risk.riskLevel === "medium" || risk.riskLevel === "unknown" || (!matchedCompany && missingSalaryOrEmployment)
-        ? "apply_with_caution"
-        : "safe_to_apply";
+  const insufficientDetailedData =
+    salary.status === "unclear" &&
+    employment.status === "unclear" &&
+    schedule.status === "unclear" &&
+    risk.factors.length === 0 &&
+    risk.criticalWarnings.length === 0;
+  let verdictLevel: FinalVerdictLevel = "safe_to_apply";
+  if (insufficientDetailedData) {
+    verdictLevel = "apply_with_caution";
+  } else if (risk.riskLevel === "high" || risk.criticalWarnings.length >= 2) {
+    verdictLevel = "avoid";
+  } else if (risk.riskLevel === "medium" || risk.riskLevel === "unknown" || (!matchedCompany && missingSalaryOrEmployment)) {
+    verdictLevel = "apply_with_caution";
+  }
+
+  const bookingSummary = bookingMentioned
+    ? "Бронювання потрібно перевіряти документально."
+    : insufficientDetailedData
+      ? "Недостатньо даних про бронювання або відстрочку."
+      : "Бронювання або відстрочка не згадуються у тексті вакансії.";
 
   return {
     salary,
@@ -1178,9 +1192,7 @@ function buildProPreview(
     schedule,
     booking: {
       mentioned: bookingMentioned,
-      summary: bookingMentioned
-        ? "Бронювання потрібно перевіряти документально."
-        : "Бронювання або відстрочка не згадуються у тексті вакансії.",
+      summary: bookingSummary,
       questions: bookingMentioned
         ? [
             "На якій підставі надається бронювання?",
@@ -1196,6 +1208,8 @@ function buildProPreview(
       level: verdictLevel,
       text: verdictLevel === "avoid"
         ? "Умови варто перевірити особливо уважно. Не передавайте документи і не погоджуйтеся на роботу без письмового підтвердження ключових умов."
+        : insufficientDetailedData
+          ? "Недостатньо даних для детального висновку. Нижче — що потрібно уточнити."
         : verdictLevel === "apply_with_caution"
           ? "Відгукуватися можна обережно: спершу уточніть оплату, оформлення, графік і зафіксуйте важливі домовленості письмово."
           : "Можна відгукуватися, але це не гарантія безпеки. Підтвердіть оплату, оформлення і графік письмово до старту.",
@@ -1226,9 +1240,9 @@ function buildVacancyBrief(
 
   const salaryStatus: VacancyBriefStatus = !parsed.salaryText
     ? {
-        label: "Зарплата не вказана",
+        label: "Зарплата не визначена",
         tone: "warning",
-        text: "У тексті не вдалося визначити суму або фіксовану частину.",
+        text: "Недостатньо даних про суму або фіксовану частину.",
       }
     : bonusMentioned
       ? {

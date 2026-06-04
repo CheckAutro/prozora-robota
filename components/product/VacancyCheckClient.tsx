@@ -808,6 +808,8 @@ function ProListBlock({
 }
 
 function ProPreviewSection({ preview }: { preview: ProPreview }) {
+  const hasInsufficientData = preview.finalVerdict.text.startsWith("Недостатньо даних");
+
   return (
     <Card className="space-y-5 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -816,7 +818,9 @@ function ProPreviewSection({ preview }: { preview: ProPreview }) {
             Розширений аналіз
           </h3>
           <p className="mt-1 text-sm text-ink-soft">
-            Перші блоки доступні як preview. Розширений Pro-звіт буде доданий без гарантій безпеки і з акцентом на питання для перевірки.
+            {hasInsufficientData
+              ? "Недостатньо даних для детального висновку. Нижче — що потрібно уточнити."
+              : "Перші блоки доступні як preview. Розширений Pro-звіт буде доданий без гарантій безпеки і з акцентом на питання для перевірки."}
           </p>
         </div>
         <Button disabled variant="secondary" size="sm">

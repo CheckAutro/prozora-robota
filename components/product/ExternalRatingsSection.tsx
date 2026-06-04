@@ -22,8 +22,6 @@ export function ExternalRatingsSection({
 }: {
   ratings: ExternalRating[];
 }) {
-  if (ratings.length === 0) return null;
-
   return (
     <section className="space-y-3">
       <div>
@@ -36,8 +34,15 @@ export function ExternalRatingsSection({
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {ratings.map((rating) => (
+      {ratings.length === 0 && (
+        <Card className="p-5 text-sm text-ink-soft">
+          Публічних підтверджених зовнішніх оцінок поки немає.
+        </Card>
+      )}
+
+      {ratings.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {ratings.map((rating) => (
           <Card key={rating.id} className="space-y-3 p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -94,9 +99,10 @@ export function ExternalRatingsSection({
                 {rating.note}
               </p>
             )}
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
