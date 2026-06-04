@@ -12,7 +12,13 @@
     "check:companies": "npx tsx scripts/check-companies.ts",
     "export:external-ratings": "npx tsx scripts/export-external-ratings-template.ts",
     "import:external-ratings": "npx tsx scripts/import-external-ratings.ts",
-    "check:external-ratings": "npx tsx scripts/check-external-ratings.ts"
+    "check:external-ratings": "npx tsx scripts/check-external-ratings.ts",
+    "export:company-open-facts": "npx tsx scripts/export-company-open-facts-template.ts",
+    "import:company-open-facts": "npx tsx scripts/import-company-open-facts.ts",
+    "check:company-open-facts": "npx tsx scripts/check-company-open-facts.ts",
+    "export:external-review-signals": "npx tsx scripts/export-external-review-signals-template.ts",
+    "import:external-review-signals": "npx tsx scripts/import-external-review-signals.ts",
+    "check:external-review-signals": "npx tsx scripts/check-external-review-signals.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

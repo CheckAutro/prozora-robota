@@ -5,6 +5,7 @@ import {
   Briefcase,
   PenLine,
   Lock,
+  MessageSquareText,
 } from "lucide-react";
 
 import { COMPANIES } from "@/lib/mock-data";
@@ -14,9 +15,20 @@ import {
   type PublishedCompanyReviewFacts,
 } from "@/lib/company-service";
 import { getPublicExternalRatings } from "@/lib/external-ratings-service";
+import {
+  getPublicCompanyOpenFactsSummary,
+  type CompanyOpenFactSummary,
+} from "@/lib/company-open-facts-service";
+import {
+  getPublicExternalReviewSignals,
+  getPublicExternalReviewSignalSummary,
+  SENTIMENT_LABELS,
+  TOPIC_LABELS,
+  type ExternalReviewSignalSummary,
+} from "@/lib/external-review-signals-service";
 import { getServerClient } from "@/lib/supabase/server";
 import { normalizeIndustry } from "@/lib/industry";
-import type { ExternalRating } from "@/lib/types";
+import type { ExternalRating, ExternalReviewSignal } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CompanyReviewsSection } from "@/components/product/CompanyReviews";
@@ -61,15 +73,43 @@ function formatCounts(counts: Record<string, number>, labels: Record<string, str
     .join(", ");
 }
 
+function formatDate(value: string | null): string {
+  if (!value) return "не вказано";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "не вказано";
+  return date.toLocaleDateString("uk-UA");
+}
+
+function joinExamples(label: string, values: string[]): string | null {
+  if (values.length === 0) return null;
+  return `${label}: ${values.slice(0, 3).join("; ")}.`;
+}
+
 function getCompanyDataLevel(
   facts: PublishedCompanyReviewFacts,
-  externalRatingsCount: number
+  externalRatingsCount: number,
+  openFactsCount: number,
+  externalReviewSignalsCount: number
 ): "Поки недостатньо даних" | "Є часткові дані" | "Є достатньо даних" {
-  if (facts.reviewCount === 0 && externalRatingsCount === 0) return "Поки недостатньо даних";
-  if (facts.reviewCount >= 5 || (facts.reviewCount >= 2 && externalRatingsCount >= 2)) {
+  if (
+    facts.reviewCount === 0 &&
+    externalRatingsCount === 0 &&
+    openFactsCount === 0 &&
+    externalReviewSignalsCount === 0
+  ) {
+    return "Поки недостатньо даних";
+  }
+  if (
+    facts.reviewCount >= 5 ||
+    (facts.reviewCount >= 2 && (externalRatingsCount >= 2 || openFactsCount >= 2 || externalReviewSignalsCount >= 2))
+  ) {
     return "Є достатньо даних";
   }
   return "Є часткові дані";
+}
+
+function externalSignalTopicList(summary: ExternalReviewSignalSummary): string {
+  return summary.topics.map((topic) => TOPIC_LABELS[topic].toLowerCase()).slice(0, 4).join(", ");
 }
 
 function CompanyAnalysisList({ items }: { items: string[] }) {
@@ -90,17 +130,34 @@ function CompanyShortAnalysis({
   city,
   facts,
   externalRatings,
+  openFactSummary,
+  externalReviewSignalSummary,
 }: {
   companyName: string;
   industry: string | null;
   city: string | null;
   facts: PublishedCompanyReviewFacts;
   externalRatings: ExternalRating[];
+  openFactSummary: CompanyOpenFactSummary;
+  externalReviewSignalSummary: ExternalReviewSignalSummary;
 }) {
-  const dataLevel = getCompanyDataLevel(facts, externalRatings.length);
-  const noData = facts.reviewCount === 0 && externalRatings.length === 0;
+  const dataLevel = getCompanyDataLevel(
+    facts,
+    externalRatings.length,
+    openFactSummary.factsCount,
+    externalReviewSignalSummary.signalCount
+  );
+  const noData =
+    facts.reviewCount === 0 &&
+    externalRatings.length === 0 &&
+    openFactSummary.factsCount === 0 &&
+    externalReviewSignalSummary.signalCount === 0;
   const conclusion = noData
-    ? "Поки недостатньо даних для оцінки роботодавця. На Прозора робота ще немає опублікованих відгуків, а підтверджених зовнішніх оцінок поки немає."
+    ? "Поки недостатньо даних для оцінки роботодавця. На Прозора робота ще немає опублікованих відгуків, підтверджених зовнішніх оцінок або узагальнених сигналів поки немає."
+    : facts.reviewCount === 0 && openFactSummary.factsCount > 0
+      ? "Є часткові дані з відкритих вакансій, але недостатньо відгуків працівників. Умови потрібно підтверджувати напряму з роботодавцем."
+    : facts.reviewCount === 0 && externalReviewSignalSummary.signalCount > 0
+      ? "Є часткові узагальнення за відкритими джерелами, але недостатньо відгуків на Прозора робота. Ці сигнали потрібно перевіряти на співбесіді."
     : dataLevel === "Є часткові дані"
       ? "Є часткові дані про роботодавця. Висновок варто робити обережно і тільки після уточнення ключових умов."
       : "Є кілька джерел даних про роботодавця, але рішення все одно варто підтверджувати письмовими умовами.";
@@ -110,23 +167,47 @@ function CompanyShortAnalysis({
     city ? `Місто: ${city}.` : "Місто компанії не вказано.",
     facts.reviewCount > 0 ? `Опубліковані відгуки на Прозора робота: ${facts.reviewCount}.` : null,
     externalRatings.length > 0 ? `Підтверджені зовнішні джерела: ${externalRatings.length}.` : null,
+    externalReviewSignalSummary.signalCount > 0 ? "Є узагальнені сигнали з відкритих джерел." : null,
+    externalReviewSignalSummary.topics.length > 0
+      ? `Найчастіші теми за відкритими джерелами: ${externalSignalTopicList(externalReviewSignalSummary)}.`
+      : null,
+    openFactSummary.factsCount > 0 ? `Є дані з відкритих вакансій: ${openFactSummary.sources.join(" / ")}.` : null,
+    joinExamples("У вакансіях згадуються міста", openFactSummary.cities),
+    joinExamples("Приклади посад", openFactSummary.vacancyTitles),
+    joinExamples("Приклади зарплати", openFactSummary.salaryExamples),
+    joinExamples("Умови", openFactSummary.conditions),
   ].filter(Boolean) as string[];
   const attention = [
     facts.reviewCount === 0
-      ? "Недостатньо відгуків на Прозора робота."
+      ? "Мало відгуків на Прозора робота."
       : `Є ${facts.reviewCount} опублікованих відгуків на Прозора робота.`,
     externalRatings.length === 0
       ? "Підтверджених зовнішніх оцінок поки немає."
       : `Є ${externalRatings.length} підтверджених зовнішніх джерел.`,
+    externalReviewSignalSummary.signalCount === 0
+      ? "Підтверджених узагальнень зовнішніх відгуків поки немає."
+      : null,
+    externalReviewSignalSummary.negativeCount + externalReviewSignalSummary.mixedCount > 0
+      ? "У відкритих джерелах є змішані або негативні згадки. Їх потрібно перевірити на співбесіді."
+      : null,
+    openFactSummary.factsCount > 0 ? "Це дані з вакансій, а не досвід працівників." : null,
+    openFactSummary.salaryExamples.length > 0
+      ? "Є приклади зарплат з відкритих вакансій, але їх потрібно підтверджувати з роботодавцем."
+      : null,
     facts.averageInternalRating !== null
       ? `Внутрішня оцінка за published reviews: ${formatAverage(facts.averageInternalRating)}.`
       : null,
   ].filter(Boolean) as string[];
   const missing = [
-    !facts.hasSalaryData ? "Даних про зарплату." : null,
-    !facts.hasEmploymentData ? "Даних про оформлення." : null,
-    !facts.hasScheduleData ? "Даних про графік." : null,
-    !facts.hasBookingData ? "Даних про бронювання або відстрочку." : null,
+    facts.reviewCount === 0 ? "Недостатньо анонімних відгуків." : null,
+    externalRatings.length === 0 ? "Немає підтверджених зовнішніх оцінок." : null,
+    externalReviewSignalSummary.signalCount === 0 ? "Немає підтверджених узагальнень зовнішніх відгуків." : null,
+    !facts.hasSalaryData && openFactSummary.salaryExamples.length === 0 ? "Недостатньо даних про зарплату." : null,
+    !facts.hasEmploymentData && !openFactSummary.hasOfficialEmploymentMention && openFactSummary.employmentTypes.length === 0
+      ? "Недостатньо даних про оформлення."
+      : null,
+    !facts.hasScheduleData && openFactSummary.schedules.length === 0 ? "Недостатньо даних про графік." : null,
+    !facts.hasBookingData && !openFactSummary.hasBookingMention ? "Даних про бронювання або відстрочку." : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -162,6 +243,66 @@ function CompanyShortAnalysis({
   );
 }
 
+function ExternalReviewSignalsSection({
+  signals,
+}: {
+  signals: ExternalReviewSignal[];
+}) {
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h2 className="font-display text-lg font-bold text-ink">
+          Що пишуть у відкритих джерелах
+        </h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          Це узагальнення відкритих джерел. Воно не є відгуками Прозора робота
+          і не впливає на внутрішній рейтинг.
+        </p>
+      </div>
+
+      {signals.length === 0 ? (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Підтверджених узагальнень зовнішніх відгуків поки немає.
+        </p>
+      ) : (
+        <div className="grid gap-3">
+          {signals.map((signal) => (
+            <div key={signal.id} className="rounded-xl border border-ink/[0.06] bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-ink">
+                    {TOPIC_LABELS[signal.topic]}: {SENTIMENT_LABELS[signal.sentiment]}
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-soft">
+                    {signal.summary}
+                  </p>
+                </div>
+                <span className="rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-medium text-ink-soft">
+                  {signal.mentionsCount} згадок
+                </span>
+              </div>
+              <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                <MessageSquareText className="h-3.5 w-3.5" />
+                <span>Джерело: {signal.sourceName}</span>
+                {signal.sourceUrl && (
+                  <a
+                    href={signal.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-brand-700"
+                  >
+                    Відкрити
+                  </a>
+                )}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function ProEmployerSection({
   title,
   summary,
@@ -191,12 +332,31 @@ function ProEmployerSection({
 function CompanyProAnalysis({
   facts,
   externalRatings,
+  openFactSummary,
+  externalReviewSignalSummary,
 }: {
   facts: PublishedCompanyReviewFacts;
   externalRatings: ExternalRating[];
+  openFactSummary: CompanyOpenFactSummary;
+  externalReviewSignalSummary: ExternalReviewSignalSummary;
 }) {
-  const dataLevel = getCompanyDataLevel(facts, externalRatings.length);
+  const dataLevel = getCompanyDataLevel(
+    facts,
+    externalRatings.length,
+    openFactSummary.factsCount,
+    externalReviewSignalSummary.signalCount
+  );
   const lowData = dataLevel === "Поки недостатньо даних";
+  const onlyOpenFacts =
+    facts.reviewCount === 0 &&
+    externalRatings.length === 0 &&
+    externalReviewSignalSummary.signalCount === 0 &&
+    openFactSummary.factsCount > 0;
+  const onlyExternalReviewSignals =
+    facts.reviewCount === 0 &&
+    externalRatings.length === 0 &&
+    openFactSummary.factsCount === 0 &&
+    externalReviewSignalSummary.signalCount > 0;
   const salaryCounts = formatCounts(facts.salaryMatchCounts, {
     yes: "відповідає заявленій",
     partial: "частково відповідає",
@@ -212,27 +372,60 @@ function CompanyProAnalysis({
     no: "не отримували",
     promised_later: "обіцяли пізніше",
   });
-  const salarySummary = facts.hasSalaryData
-    ? [
-        facts.salaryAverage !== null ? `Є оцінки зарплати: ${formatAverage(facts.salaryAverage)}.` : null,
-        salaryCounts ? `Відповідність заявленій зарплаті за відгуками: ${salaryCounts}.` : null,
-      ].filter(Boolean).join(" ")
-    : "Недостатньо даних про зарплату.";
+  const salarySummaryParts = [
+    facts.hasSalaryData
+      ? [
+          facts.salaryAverage !== null ? `За відгуками є оцінки зарплати: ${formatAverage(facts.salaryAverage)}.` : null,
+          salaryCounts ? `Відповідність заявленій зарплаті за відгуками: ${salaryCounts}.` : null,
+        ].filter(Boolean).join(" ")
+      : null,
+    openFactSummary.salaryExamples.length > 0
+      ? `У відкритих вакансіях згадуються: ${openFactSummary.salaryExamples.slice(0, 3).join("; ")}. Це дані з вакансій, а не підтвердження фактичних виплат.`
+      : null,
+  ].filter(Boolean);
+  const salarySummary = salarySummaryParts.length ? salarySummaryParts.join(" ") : "Недостатньо даних про зарплату.";
   const employmentSummary = facts.hasEmploymentData
-    ? `Є структуровані відповіді про оформлення: ${employmentCounts || "деталі не визначені"}.`
-    : "Недостатньо даних про офіційне оформлення.";
+    ? `За відгуками є структуровані відповіді про оформлення: ${employmentCounts || "деталі не визначені"}.`
+    : openFactSummary.hasOfficialEmploymentMention || openFactSummary.employmentTypes.length > 0
+      ? `У вакансіях згадується оформлення: ${openFactSummary.employmentTypes[0] ?? "офіційне оформлення"}. Це потрібно підтвердити письмово.`
+      : "Недостатньо даних про офіційне оформлення.";
   const scheduleSummary = facts.hasScheduleData
-    ? `Є оцінки графіку у published reviews: ${formatAverage(facts.scheduleAverage)}. Деталі графіку потрібно уточнювати окремо.`
-    : "Недостатньо даних про графік і навантаження.";
+    ? `За відгуками є оцінки графіку: ${formatAverage(facts.scheduleAverage)}. Деталі графіку потрібно уточнювати окремо.`
+    : openFactSummary.schedules.length > 0
+      ? `У відкритих вакансіях згадуються графіки: ${openFactSummary.schedules.slice(0, 3).join("; ")}.`
+      : "Недостатньо даних про графік і навантаження.";
   const bookingSummary = facts.hasBookingData
-    ? `Є структуровані відповіді про бронювання: ${bookingCounts || "деталі не визначені"}.`
-    : "Недостатньо даних про бронювання або відстрочку.";
+    ? `За відгуками є структуровані відповіді про бронювання: ${bookingCounts || "деталі не визначені"}.`
+    : openFactSummary.hasBookingMention
+      ? "У вакансіях згадується бронювання/відстрочка, потрібно перевіряти підставу, строк і письмове підтвердження."
+      : "Недостатньо даних про бронювання або відстрочку.";
   const reviewsSummary = facts.reviewCount > 0
     ? `На Прозора робота є ${facts.reviewCount} опублікованих відгуків. Внутрішня оцінка: ${formatAverage(facts.averageInternalRating)}.`
     : "На Прозора робота ще немає опублікованих відгуків.";
   const externalSummary = externalRatings.length > 0
     ? `Є ${externalRatings.length} підтверджених зовнішніх джерел. Зовнішні оцінки не є відгуками Прозора робота і не впливають на внутрішній рейтинг.`
     : "Підтверджених зовнішніх оцінок поки немає. Зовнішні оцінки не є відгуками Прозора робота і не впливають на внутрішній рейтинг.";
+  const externalReviewSignalText = externalReviewSignalSummary.signalCount > 0
+    ? [
+        `За відкритими джерелами є ${externalReviewSignalSummary.signalCount} підтверджених узагальнених сигналів.`,
+        externalReviewSignalSummary.topSignals
+          .map((signal) => `${TOPIC_LABELS[signal.topic]}: ${SENTIMENT_LABELS[signal.sentiment]} — ${signal.summary}`)
+          .join(" "),
+        "Це не відгуки Прозора робота. Це узагальнення зовнішніх джерел.",
+      ].join(" ")
+    : "Недостатньо даних із зовнішніх відгуків. Це не відгуки Прозора робота і не впливає на внутрішній рейтинг.";
+  const openFactsSummary = openFactSummary.factsCount > 0
+    ? [
+        `Джерела: ${openFactSummary.sources.join(" / ")}.`,
+        `Останнє оновлення: ${formatDate(openFactSummary.latestCollectedAt)}.`,
+        joinExamples("Вакансії", openFactSummary.vacancyTitles),
+        joinExamples("Міста", openFactSummary.cities),
+        joinExamples("Зарплати", openFactSummary.salaryExamples),
+        joinExamples("Умови", openFactSummary.conditions),
+        joinExamples("Переваги", openFactSummary.benefits),
+        "Це дані з відкритих вакансій. Вони не є відгуками працівників і можуть відрізнятися від реальних умов.",
+      ].filter(Boolean).join(" ")
+    : "Підтверджених публічних даних з відкритих вакансій поки немає.";
   const questions = [
     "Яка фіксована ставка?",
     "Як виплачуються бонуси?",
@@ -245,9 +438,13 @@ function CompanyProAnalysis({
     "Чи є нічні зміни або робота у вихідні?",
     "Чи надають бронювання і чи дають письмове підтвердження?",
   ];
-  const finalSummary = lowData
+  const finalSummary = onlyOpenFacts
+    ? "Є часткові дані з відкритих вакансій, але недостатньо відгуків працівників. Перед рішенням потрібно уточнити оплату, оформлення і графік письмово."
+    : onlyExternalReviewSignals
+      ? "Є часткові узагальнення за відкритими джерелами, але недостатньо відгуків працівників і підтверджених фактів вакансій. Перед рішенням потрібно перевірити оплату, оформлення і графік письмово."
+    : lowData
     ? "Недостатньо даних для повної оцінки роботодавця. Перед рішенням варто уточнити оплату, оформлення, графік і перевірити умови письмово."
-    : "Висновок потрібно будувати тільки на фактичних published reviews і підтверджених зовнішніх оцінках. Перед рішенням все одно варто підтвердити ключові умови письмово.";
+    : "Висновок потрібно будувати тільки на фактичних published reviews, підтверджених зовнішніх оцінках і підтверджених даних з відкритих вакансій. Перед рішенням все одно варто підтвердити ключові умови письмово.";
 
   return (
     <Card className="space-y-5 p-6">
@@ -290,6 +487,8 @@ function CompanyProAnalysis({
         />
         <ProEmployerSection title="Відгуки працівників" summary={reviewsSummary} />
         <ProEmployerSection title="Оцінки з відкритих джерел" summary={externalSummary} />
+        <ProEmployerSection title="Сигнали з відкритих джерел" summary={externalReviewSignalText} />
+        <ProEmployerSection title="Дані з відкритих вакансій" summary={openFactsSummary} />
         <ProEmployerSection
           title="Що уточнити перед співбесідою"
           summary="Практичні питання для перевірки умов."
@@ -397,8 +596,13 @@ export default async function CompanyPage({
     // Check if it's a known mock slug (Supabase may not be configured yet)
     const mockFallback = COMPANIES.find((c) => c.slug === slug);
     if (!mockFallback) notFound();
-    const externalRatings = await getPublicExternalRatings(slug);
-    const reviewFacts = await getPublishedCompanyReviewFacts(slug);
+    const [externalRatings, externalReviewSignals, externalReviewSignalSummary, reviewFacts, openFactSummary] = await Promise.all([
+      getPublicExternalRatings(slug),
+      getPublicExternalReviewSignals(slug),
+      getPublicExternalReviewSignalSummary(slug),
+      getPublishedCompanyReviewFacts(slug),
+      getPublicCompanyOpenFactsSummary(slug),
+    ]);
     const fallbackIndustry = normalizeIndustry(mockFallback.industry);
 
     // Supabase not configured — show name only with a prompt to add a review
@@ -432,6 +636,8 @@ export default async function CompanyPage({
           city={mockFallback.city}
           facts={reviewFacts}
           externalRatings={externalRatings}
+          openFactSummary={openFactSummary}
+          externalReviewSignalSummary={externalReviewSignalSummary}
         />
         <section className="space-y-3">
           <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
@@ -444,7 +650,13 @@ export default async function CompanyPage({
           </p>
         </section>
         <ExternalRatingsSection ratings={externalRatings} />
-        <CompanyProAnalysis facts={reviewFacts} externalRatings={externalRatings} />
+        <ExternalReviewSignalsSection signals={externalReviewSignals} />
+        <CompanyProAnalysis
+          facts={reviewFacts}
+          externalRatings={externalRatings}
+          openFactSummary={openFactSummary}
+          externalReviewSignalSummary={externalReviewSignalSummary}
+        />
         <p className="text-center text-xs text-ink-muted">
           Інформація про компанію формується на основі анонімних відгуків і не є офіційною
           оцінкою роботодавця.
@@ -455,8 +667,13 @@ export default async function CompanyPage({
 
   // ── Main page: real Supabase company + real published reviews ─────────────
   const industry = normalizeIndustry(sbCompany.industry);
-  const externalRatings = await getPublicExternalRatings(sbCompany.slug);
-  const reviewFacts = await getPublishedCompanyReviewFacts(sbCompany.slug);
+  const [externalRatings, externalReviewSignals, externalReviewSignalSummary, reviewFacts, openFactSummary] = await Promise.all([
+    getPublicExternalRatings(sbCompany.slug),
+    getPublicExternalReviewSignals(sbCompany.slug),
+    getPublicExternalReviewSignalSummary(sbCompany.slug),
+    getPublishedCompanyReviewFacts(sbCompany.slug),
+    getPublicCompanyOpenFactsSummary(sbCompany.slug),
+  ]);
 
   return (
     <div className="container-page max-w-3xl space-y-6 py-8 sm:py-10">
@@ -490,6 +707,8 @@ export default async function CompanyPage({
         city={sbCompany.city}
         facts={reviewFacts}
         externalRatings={externalRatings}
+        openFactSummary={openFactSummary}
+        externalReviewSignalSummary={externalReviewSignalSummary}
       />
 
       {/* Reviews: summary + ratings + risks + geo/roles + list (all from Supabase) */}
@@ -505,8 +724,14 @@ export default async function CompanyPage({
       </section>
 
       <ExternalRatingsSection ratings={externalRatings} />
+      <ExternalReviewSignalsSection signals={externalReviewSignals} />
 
-      <CompanyProAnalysis facts={reviewFacts} externalRatings={externalRatings} />
+      <CompanyProAnalysis
+        facts={reviewFacts}
+        externalRatings={externalRatings}
+        openFactSummary={openFactSummary}
+        externalReviewSignalSummary={externalReviewSignalSummary}
+      />
 
       <p className="text-center text-xs text-ink-muted">
         Інформація про компанію формується на основі анонімних відгуків і не є офіційною

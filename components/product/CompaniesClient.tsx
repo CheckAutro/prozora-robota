@@ -11,6 +11,8 @@ import { slugifyCompanyName } from "@/lib/slugify";
 import { normalizeIndustry } from "@/lib/industry";
 import type { CompanyListItem, ReviewMetricsBySlug } from "@/lib/company-service";
 import type { ExternalRatingSummaryBySlug } from "@/lib/external-ratings-service";
+import type { CompanyOpenFactSummaryBySlug } from "@/lib/company-open-facts-service";
+import type { ExternalReviewSignalSummaryBySlug } from "@/lib/external-review-signals-service";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,10 @@ interface Props {
   metrics: ReviewMetricsBySlug;
   /** Per-slug public external rating summaries, computed server-side. */
   externalRatingSummaries: ExternalRatingSummaryBySlug;
+  /** Per-slug public open vacancy facts summaries, computed server-side. */
+  openFactSummaries: CompanyOpenFactSummaryBySlug;
+  /** Per-slug public external review signal summaries, computed server-side. */
+  externalReviewSignalSummaries: ExternalReviewSignalSummaryBySlug;
 }
 
 // ── Search helpers (preserved from previous version) ─────────────────────────
@@ -96,6 +102,8 @@ export function CompaniesClient({
   industries,
   metrics,
   externalRatingSummaries,
+  openFactSummaries,
+  externalReviewSignalSummaries,
 }: Props) {
   const [query, setQuery]                           = useState("");
   const [city, setCity]                             = useState("all");
@@ -318,6 +326,8 @@ export function CompaniesClient({
                 company={item.data}
                 metrics={metrics[item.data.slug] ?? null}
                 externalRatingSummary={externalRatingSummaries[item.data.slug] ?? null}
+                openFactSummary={openFactSummaries[item.data.slug] ?? null}
+                externalReviewSignalSummary={externalReviewSignalSummaries[item.data.slug] ?? null}
               />
             ) : (
               <CompanyCardSlim
@@ -325,6 +335,8 @@ export function CompaniesClient({
                 company={item.data}
                 metrics={metrics[item.data.slug] ?? null}
                 externalRatingSummary={externalRatingSummaries[item.data.slug] ?? null}
+                openFactSummary={openFactSummaries[item.data.slug] ?? null}
+                externalReviewSignalSummary={externalReviewSignalSummaries[item.data.slug] ?? null}
               />
             )
           )}

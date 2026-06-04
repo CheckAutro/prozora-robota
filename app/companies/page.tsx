@@ -8,6 +8,8 @@ import {
   getPublishedReviewMetrics,
 } from "@/lib/company-service";
 import { getPublicExternalRatingSummaries } from "@/lib/external-ratings-service";
+import { getPublicCompanyOpenFactsSummariesForCompanies } from "@/lib/company-open-facts-service";
+import { getPublicExternalReviewSignalSummariesForCompanies } from "@/lib/external-review-signals-service";
 
 export const metadata: Metadata = {
   title: "Відгуки про роботодавців — Прозора робота",
@@ -20,11 +22,19 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function CompaniesPage() {
-  // Fetch companies, internal review metrics, and external rating summaries in parallel.
-  const [companies, metrics, externalRatingSummaries] = await Promise.all([
+  // Fetch each source separately. External data never changes internal review metrics.
+  const [
+    companies,
+    metrics,
+    externalRatingSummaries,
+    openFactSummaries,
+    externalReviewSignalSummaries,
+  ] = await Promise.all([
     getCompanyList(),
     getPublishedReviewMetrics(),
     getPublicExternalRatingSummaries(),
+    getPublicCompanyOpenFactsSummariesForCompanies(),
+    getPublicExternalReviewSignalSummariesForCompanies(),
   ]);
 
   const cities = getCitiesFromList(companies);
@@ -38,6 +48,8 @@ export default async function CompaniesPage() {
         industries={industries}
         metrics={metrics}
         externalRatingSummaries={externalRatingSummaries}
+        openFactSummaries={openFactSummaries}
+        externalReviewSignalSummaries={externalReviewSignalSummaries}
       />
     </Suspense>
   );

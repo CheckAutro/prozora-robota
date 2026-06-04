@@ -13,6 +13,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { AdminReviewCard } from "@/components/product/AdminReviewCard";
 import { AdminSignalsSection } from "@/components/product/AdminSignalsSection";
 import { AdminExternalRatingsSection } from "@/components/product/AdminExternalRatingsSection";
+import { AdminExternalReviewSignalsSection } from "@/components/product/AdminExternalReviewSignalsSection";
+import { AdminCompanyOpenFactsSection } from "@/components/product/AdminCompanyOpenFactsSection";
 import type { Review, ReviewStatus } from "@/lib/types";
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -360,6 +362,16 @@ export default function AdminPage() {
       {/* External ratings */}
       <div className="border-t border-ink/[0.06] pt-8">
         {accessToken && <AdminExternalRatingsSection accessToken={accessToken} />}
+      </div>
+
+      {/* External review signals */}
+      <div className="border-t border-ink/[0.06] pt-8">
+        {accessToken && <AdminExternalReviewSignalsSection accessToken={accessToken} />}
+      </div>
+
+      {/* Open vacancy facts */}
+      <div className="border-t border-ink/[0.06] pt-8">
+        {accessToken && <AdminCompanyOpenFactsSection accessToken={accessToken} />}
       </div>
 
       {/* External signals */}

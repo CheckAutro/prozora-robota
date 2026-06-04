@@ -181,3 +181,99 @@ export interface ExternalRating {
   createdAt: string;
   updatedAt: string;
 }
+
+// ── Company open facts ───────────────────────────────────────────────────────
+// Structured facts extracted from open vacancy pages.
+// NEVER mixed with public.reviews, external_ratings, or internal ratings.
+
+export type CompanyOpenFactStatus =
+  | "needs_verification"
+  | "verified"
+  | "rejected";
+
+export interface CompanyOpenFact {
+  id: string;
+  companySlug: string;
+  companyName: string;
+  sourceName: string;
+  sourceUrl: string | null;
+  vacancyTitle: string | null;
+  city: string | null;
+  salaryText: string | null;
+  employmentType: string | null;
+  schedule: string | null;
+  experience: string | null;
+  education: string | null;
+  companyDescription: string | null;
+  vacancyDescription: string | null;
+  requirements: string[];
+  responsibilities: string[];
+  conditions: string[];
+  benefits: string[];
+  skills: string[];
+  mentionsOfficialEmployment: boolean;
+  mentionsBooking: boolean;
+  mentionsProbation: boolean;
+  mentionsBonus: boolean;
+  rawExcerpt: string | null;
+  collectedAt: string | null;
+  status: CompanyOpenFactStatus;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── External review signals ─────────────────────────────────────────────────
+// Admin-verified short summaries of what external reviews are saying.
+// NEVER mixed with public.reviews, external_ratings, company_open_facts, or
+// internal Прозора робота ratings.
+
+export type ExternalReviewSignalStatus =
+  | "needs_verification"
+  | "verified"
+  | "rejected";
+
+export type ExternalReviewSignalTopic =
+  | "salary"
+  | "schedule"
+  | "employment"
+  | "management"
+  | "workload"
+  | "payment_delay"
+  | "interview"
+  | "booking"
+  | "benefits"
+  | "career"
+  | "culture"
+  | "other";
+
+export type ExternalReviewSignalSentiment =
+  | "positive"
+  | "mixed"
+  | "negative"
+  | "neutral";
+
+export type ExternalReviewSignalConfidence =
+  | "low"
+  | "medium"
+  | "high";
+
+export interface ExternalReviewSignal {
+  id: string;
+  companySlug: string;
+  companyName: string;
+  sourceName: string;
+  sourceUrl: string | null;
+  topic: ExternalReviewSignalTopic;
+  sentiment: ExternalReviewSignalSentiment;
+  summary: string;
+  mentionsCount: number;
+  sampleSize: number | null;
+  confidence: ExternalReviewSignalConfidence;
+  collectedAt: string | null;
+  status: ExternalReviewSignalStatus;
+  isPublic: boolean;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

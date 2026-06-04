@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { MapPin, Briefcase, MessageSquare, ChevronRight, Star } from "lucide-react";
+import { MapPin, Briefcase, MessageSquare, ChevronRight, Star, FileText, MessageSquareText } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { normalizeIndustry } from "@/lib/industry";
 import type { Company } from "@/lib/types";
 import type { SupabaseCompany, ReviewMetrics } from "@/lib/company-service";
 import type { ExternalRatingSummary } from "@/lib/external-ratings-service";
+import type { CompanyOpenFactSummary } from "@/lib/company-open-facts-service";
+import type { ExternalReviewSignalSummary } from "@/lib/external-review-signals-service";
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("uk-UA").format(value);
@@ -32,6 +34,8 @@ function CompanyCardInner({
   industry,
   metrics,
   externalRatingSummary,
+  openFactSummary,
+  externalReviewSignalSummary,
 }: {
   slug: string;
   name: string;
@@ -39,6 +43,8 @@ function CompanyCardInner({
   industry: string | null;
   metrics?: ReviewMetrics | null;
   externalRatingSummary?: ExternalRatingSummary | null;
+  openFactSummary?: CompanyOpenFactSummary | null;
+  externalReviewSignalSummary?: ExternalReviewSignalSummary | null;
 }) {
   const normIndustry = normalizeIndustry(industry);
   const externalSources = externalRatingSummary?.sources.join(" · ") ?? "";
@@ -56,11 +62,43 @@ function CompanyCardInner({
       ].filter(Boolean).join(" · ")
     : null;
   const hasReviews = Boolean(metrics && metrics.reviewCount > 0);
-  const analysisText = hasReviews
-    ? "є відгуки на Прозора робота"
-    : externalRatingSummary
-      ? "є зовнішні оцінки, але мало відгуків"
-      : "поки недостатньо даних";
+  const hasExternalRatings = Boolean(externalRatingSummary);
+  const hasOpenFacts = Boolean(openFactSummary && openFactSummary.factsCount > 0);
+  const hasExternalReviewSignals = Boolean(
+    externalReviewSignalSummary && externalReviewSignalSummary.signalCount > 0
+  );
+  const vacancyDetails = hasOpenFacts
+    ? openFactSummary?.sources.length
+      ? `є дані з ${openFactSummary.sources.slice(0, 3).join(" / ")}`
+      : `${openFactSummary?.factsCount ?? 0} відкриті джерела`
+    : null;
+  const analysisText = hasReviews && (hasExternalRatings || hasOpenFacts)
+    ? "є відгуки та відкриті джерела"
+    : hasReviews
+      ? (hasExternalReviewSignals ? "є відгуки та відкриті джерела" : "є відгуки на Прозора робота")
+      : hasExternalReviewSignals
+        ? "є зовнішні сигнали, але мало відгуків"
+        : hasOpenFacts
+          ? "є дані з відкритих вакансій, але мало відгуків"
+          : hasExternalRatings
+            ? "є зовнішні оцінки, але мало відгуків"
+            : "поки недостатньо даних";
+  const signalDetails = hasExternalReviewSignals
+    ? externalReviewSignalSummary?.topics.length
+      ? externalReviewSignalSummary.topics
+          .slice(0, 3)
+          .map((topic) => {
+            if (topic === "salary") return "зарплата";
+            if (topic === "schedule") return "графік";
+            if (topic === "workload") return "навантаження";
+            if (topic === "employment") return "оформлення";
+            if (topic === "management") return "керівництво";
+            if (topic === "payment_delay") return "виплати";
+            return "інші теми";
+          })
+          .join(" · ")
+      : "є згадки з відкритих джерел"
+    : null;
 
   return (
     <Card className="flex flex-col gap-4 p-5 transition-shadow hover:shadow-card-hover">
@@ -112,6 +150,22 @@ function CompanyCardInner({
           )}
         </p>
 
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
+          <span className="inline-flex items-center gap-1 font-semibold text-ink">
+            <FileText className="h-3.5 w-3.5 text-brand-600" />
+            Вакансії:
+          </span>
+          {vacancyDetails ? <span>{vacancyDetails}</span> : <span>даних поки немає</span>}
+        </p>
+
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
+          <span className="inline-flex items-center gap-1 font-semibold text-ink">
+            <MessageSquareText className="h-3.5 w-3.5 text-brand-600" />
+            Сигнали:
+          </span>
+          {signalDetails ? <span>{signalDetails}</span> : <span>поки недостатньо даних</span>}
+        </p>
+
         <p className="text-xs text-ink-muted">
           Зовнішні оцінки не впливають на рейтинг Прозора робота.
         </p>
@@ -142,10 +196,14 @@ export function CompanyCard({
   company,
   metrics,
   externalRatingSummary,
+  openFactSummary,
+  externalReviewSignalSummary,
 }: {
   company: Company;
   metrics?: ReviewMetrics | null;
   externalRatingSummary?: ExternalRatingSummary | null;
+  openFactSummary?: CompanyOpenFactSummary | null;
+  externalReviewSignalSummary?: ExternalReviewSignalSummary | null;
 }) {
   return (
     <CompanyCardInner
@@ -155,6 +213,8 @@ export function CompanyCard({
       industry={company.industry}
       metrics={metrics}
       externalRatingSummary={externalRatingSummary}
+      openFactSummary={openFactSummary}
+      externalReviewSignalSummary={externalReviewSignalSummary}
     />
   );
 }
@@ -167,10 +227,14 @@ export function CompanyCardSlim({
   company,
   metrics,
   externalRatingSummary,
+  openFactSummary,
+  externalReviewSignalSummary,
 }: {
   company: SupabaseCompany;
   metrics?: ReviewMetrics | null;
   externalRatingSummary?: ExternalRatingSummary | null;
+  openFactSummary?: CompanyOpenFactSummary | null;
+  externalReviewSignalSummary?: ExternalReviewSignalSummary | null;
 }) {
   return (
     <CompanyCardInner
@@ -180,6 +244,8 @@ export function CompanyCardSlim({
       industry={company.industry ?? null}
       metrics={metrics}
       externalRatingSummary={externalRatingSummary}
+      openFactSummary={openFactSummary}
+      externalReviewSignalSummary={externalReviewSignalSummary}
     />
   );
 }

@@ -15,6 +15,7 @@ import {
   LockKeyhole,
   MapPin,
   MessageSquare,
+  MessageSquareText,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -25,7 +26,12 @@ import { Card, SectionTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { normalizeIndustry } from "@/lib/industry";
-import type { ExternalRating, RiskLevel } from "@/lib/types";
+import type {
+  ExternalRating,
+  ExternalReviewSignalSentiment,
+  ExternalReviewSignalTopic,
+  RiskLevel,
+} from "@/lib/types";
 
 type SourceName = "Work.ua" | "Robota.ua" | "URL" | "Вручну";
 
@@ -43,6 +49,21 @@ interface ParsedVacancy {
   companyName: string | null;
   city: string | null;
   salaryText: string | null;
+  employmentType: string | null;
+  schedule: string | null;
+  experience: string | null;
+  education: string | null;
+  skills: string[];
+  benefits: string[];
+  requirements: string[];
+  responsibilities: string[];
+  conditions: string[];
+  companyDescription: string | null;
+  publishedAt: string | null;
+  mentionsOfficialEmployment: boolean;
+  mentionsBooking: boolean;
+  mentionsProbation: boolean;
+  mentionsBonus: boolean;
   descriptionText: string;
 }
 
@@ -140,6 +161,27 @@ interface VacancyAnalysis {
   vacancyBrief: VacancyBrief;
 }
 
+interface ExternalReviewTopSignal {
+  topic: ExternalReviewSignalTopic;
+  sentiment: ExternalReviewSignalSentiment;
+  summary: string;
+  sourceName: string;
+  mentionsCount: number;
+}
+
+interface ExternalReviewSignalSummary {
+  companySlug: string;
+  signalCount: number;
+  sourceCount: number;
+  sources: string[];
+  topics: ExternalReviewSignalTopic[];
+  positiveCount: number;
+  mixedCount: number;
+  negativeCount: number;
+  neutralCount: number;
+  topSignals: ExternalReviewTopSignal[];
+}
+
 interface VacancyReport {
   ok: true;
   inputType: string;
@@ -147,6 +189,7 @@ interface VacancyReport {
   matchedCompany: ReportCompany | null;
   internalReviews: InternalReviewsSummary;
   externalRatings: ExternalRating[];
+  externalReviewSignals: ExternalReviewSignalSummary | null;
   risk: VacancyRiskReport;
   analysis: VacancyAnalysis;
   fallbackReason: string | null;
@@ -224,6 +267,28 @@ const BRIEF_TONE_META: Record<BriefTone, { className: string; dotClassName: stri
     className: "border-ink/10 bg-ink/[0.04] text-ink-soft",
     dotClassName: "bg-ink-muted",
   },
+};
+
+const EXTERNAL_SIGNAL_TOPIC_LABELS: Record<ExternalReviewSignalTopic, string> = {
+  salary: "Зарплата",
+  schedule: "Графік",
+  employment: "Оформлення",
+  management: "Керівництво",
+  workload: "Навантаження",
+  payment_delay: "Затримки виплат",
+  interview: "Співбесіда",
+  booking: "Бронювання",
+  benefits: "Бонуси / переваги",
+  career: "Карʼєра",
+  culture: "Культура",
+  other: "Інше",
+};
+
+const EXTERNAL_SIGNAL_SENTIMENT_LABELS: Record<ExternalReviewSignalSentiment, string> = {
+  positive: "позитивно",
+  mixed: "змішано",
+  negative: "негативно",
+  neutral: "нейтрально",
 };
 
 function Stars({ value }: { value: number }) {
@@ -491,7 +556,28 @@ function VacancyBriefStatusCard({
   );
 }
 
-function VacancyBriefSection({ brief }: { brief: VacancyBrief }) {
+function vacancyFactItems(parsed: ParsedVacancy): string[] {
+  return [
+    parsed.companyDescription ? `Опис компанії: ${parsed.companyDescription}` : null,
+    parsed.employmentType ? `Оформлення: ${parsed.employmentType}` : null,
+    parsed.schedule ? `Графік: ${parsed.schedule}` : null,
+    parsed.experience ? `Досвід: ${parsed.experience}` : null,
+    parsed.education ? `Освіта: ${parsed.education}` : null,
+    parsed.conditions.length ? `Умови: ${parsed.conditions.slice(0, 2).join("; ")}` : null,
+    parsed.benefits.length ? `Переваги: ${parsed.benefits.slice(0, 2).join("; ")}` : null,
+    parsed.requirements.length ? `Вимоги: ${parsed.requirements.slice(0, 2).join("; ")}` : null,
+  ].filter(Boolean).slice(0, 5) as string[];
+}
+
+function VacancyBriefSection({
+  brief,
+  parsed,
+}: {
+  brief: VacancyBrief;
+  parsed: ParsedVacancy;
+}) {
+  const facts = vacancyFactItems(parsed);
+
   return (
     <Card className="space-y-5 p-6">
       <div>
@@ -508,6 +594,22 @@ function VacancyBriefSection({ brief }: { brief: VacancyBrief }) {
         <VacancyBriefStatusCard title="Оформлення" status={brief.employmentStatus} />
         <VacancyBriefStatusCard title="Графік" status={brief.scheduleStatus} />
       </div>
+
+      {facts.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <FileText className="h-4 w-4 text-brand-700" />
+            Факти з вакансії
+          </h4>
+          <ul className="space-y-2">
+            {facts.map((fact) => (
+              <li key={fact} className="text-sm leading-relaxed text-ink-soft">
+                {fact}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
@@ -710,6 +812,62 @@ function ExternalRatingsSection({
   );
 }
 
+function ExternalReviewSignalsSection({
+  company,
+  summary,
+}: {
+  company: ReportCompany | null;
+  summary: ExternalReviewSignalSummary | null;
+}) {
+  const topSignals = summary?.topSignals ?? [];
+
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="font-display text-lg font-bold text-ink">
+          Що пишуть у відкритих джерелах про компанію
+        </h3>
+        <p className="mt-1 text-sm text-ink-soft">
+          Це короткі перевірені узагальнення зовнішніх джерел. Вони не є
+          відгуками Прозора робота і не впливають на внутрішній рейтинг.
+        </p>
+      </div>
+
+      {!company && (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Зовнішні сигнали показуються після надійного визначення компанії.
+        </p>
+      )}
+
+      {company && topSignals.length === 0 && (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Підтверджених зовнішніх сигналів про компанію поки немає.
+        </p>
+      )}
+
+      {topSignals.length > 0 && (
+        <div className="grid gap-3">
+          {topSignals.slice(0, 5).map((signal) => (
+            <div key={`${signal.topic}-${signal.sourceName}-${signal.summary}`} className="rounded-xl border border-ink/[0.06] bg-white p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                  <MessageSquareText className="h-4 w-4 text-brand-700" />
+                  {EXTERNAL_SIGNAL_TOPIC_LABELS[signal.topic]}: {EXTERNAL_SIGNAL_SENTIMENT_LABELS[signal.sentiment]}
+                </h4>
+                <span className="rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-medium text-ink-soft">
+                  {formatNumber(signal.mentionsCount)} згадок
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed text-ink-soft">{signal.summary}</p>
+              <p className="mt-2 text-xs text-ink-muted">Джерело: {signal.sourceName}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function MissingInfoSection({ items }: { items: string[] }) {
   return (
     <Card className="space-y-3 p-6">
@@ -887,7 +1045,7 @@ function ResultReport({ report }: { report: VacancyReport }) {
   return (
     <div className="space-y-5">
       <VacancySummary report={report} />
-      <VacancyBriefSection brief={report.analysis.vacancyBrief} />
+      <VacancyBriefSection brief={report.analysis.vacancyBrief} parsed={report.parsedVacancy} />
       <FreeSummarySection summary={report.analysis.freeSummary} />
       <CompanySection
         company={report.matchedCompany}
@@ -897,6 +1055,10 @@ function ResultReport({ report }: { report: VacancyReport }) {
       <ExternalRatingsSection
         company={report.matchedCompany}
         ratings={report.externalRatings}
+      />
+      <ExternalReviewSignalsSection
+        company={report.matchedCompany}
+        summary={report.externalReviewSignals}
       />
       <RiskSection summary={report.analysis.freeSummary} />
       <MissingInfoSection items={report.analysis.freeSummary.missingInfo} />

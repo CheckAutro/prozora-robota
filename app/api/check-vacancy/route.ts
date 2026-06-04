@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerClient } from "@/lib/supabase/server";
 import { getPublicExternalRatings } from "@/lib/external-ratings-service";
+import {
+  getPublicExternalReviewSignalSummary,
+  type ExternalReviewSignalSummary,
+} from "@/lib/external-review-signals-service";
+import { upsertCompanyOpenFactFromVacancy } from "@/lib/company-open-facts-service";
 import { slugifyCompanyName } from "@/lib/slugify";
 import { fromRow, type ReviewRow } from "@/lib/storage";
 import type { Review } from "@/lib/types";
@@ -23,6 +28,21 @@ interface ParsedVacancy {
   companyName: string | null;
   city: string | null;
   salaryText: string | null;
+  employmentType: string | null;
+  schedule: string | null;
+  experience: string | null;
+  education: string | null;
+  skills: string[];
+  benefits: string[];
+  requirements: string[];
+  responsibilities: string[];
+  conditions: string[];
+  companyDescription: string | null;
+  publishedAt: string | null;
+  mentionsOfficialEmployment: boolean;
+  mentionsBooking: boolean;
+  mentionsProbation: boolean;
+  mentionsBonus: boolean;
   descriptionText: string;
 }
 
@@ -481,6 +501,9 @@ function parseMetaVacancy(html: string, source: SourceName, sourceUrl: string): 
     companyName: jsonLd.companyName ?? null,
     city: jsonLd.city ?? null,
   });
+  const structured = extractStructuredVacancyFacts(
+    cleanText([jsonLd.descriptionText, metaDescription].filter(Boolean).join(" "))
+  );
   const parsed = {
     source,
     sourceUrl,
@@ -488,6 +511,7 @@ function parseMetaVacancy(html: string, source: SourceName, sourceUrl: string): 
     companyName: jsonLd.companyName ?? null,
     city: jsonLd.city ?? null,
     salaryText: cleanedSalary,
+    ...structured,
     descriptionText: cleanText([jsonLd.descriptionText, metaDescription].filter(Boolean).join(" ")).slice(0, 14000),
   };
 
@@ -500,6 +524,178 @@ function parseMetaVacancy(html: string, source: SourceName, sourceUrl: string): 
     rawSalary,
     cleanedSalary,
     mainTextPreview: parsed.descriptionText.slice(0, 500),
+  };
+}
+
+function normalizeListItem(value: string): string | null {
+  const text = cleanText(value)
+    .replace(/^[-–—•*\d.)\s]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text || text.length < 3 || text.length > 180) return null;
+  return text;
+}
+
+function uniqueShortList(items: Array<string | null | undefined>, limit = 5): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const normalized = item ? normalizeListItem(item) : null;
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function extractSegment(text: string, headings: string[], stopHeadings: string[]): string {
+  const lower = text.toLowerCase();
+  let start = -1;
+  let matchedHeading = "";
+  for (const heading of headings) {
+    const index = lower.indexOf(heading.toLowerCase());
+    if (index >= 0 && (start === -1 || index < start)) {
+      start = index;
+      matchedHeading = heading;
+    }
+  }
+  if (start < 0) return "";
+
+  const contentStart = start + matchedHeading.length;
+  let end = text.length;
+  for (const heading of stopHeadings) {
+    const index = lower.indexOf(heading.toLowerCase(), contentStart + 10);
+    if (index >= 0 && index < end) end = index;
+  }
+  return text.slice(contentStart, end).replace(/^[:\s-]+/, "").trim();
+}
+
+function splitFactSegment(segment: string, limit = 5): string[] {
+  if (!segment) return [];
+  return uniqueShortList(
+    segment
+      .split(/(?:\s+[;•]\s+|\s+-\s+|(?<=[.!?])\s+(?=[А-ЯA-ZІЇЄҐ]))/u)
+      .map((item) => item.trim()),
+    limit
+  );
+}
+
+function firstMatch(text: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (match?.[1]) return cleanText(match[1]).slice(0, 120);
+    if (match?.[0]) return cleanText(match[0]).slice(0, 120);
+  }
+  return null;
+}
+
+function extractScheduleText(text: string): string | null {
+  return firstMatch(text, [
+    /графік(?: роботи)?\s*[:：-]\s*([^.;\n]{3,120})/i,
+    /(?:графік|режим)\s+(?:роботи\s+)?(?:\d{1,2}[:.]\d{2}\s*[—–-]\s*\d{1,2}[:.]\d{2}|[0-9]\s*\/\s*[0-9])[^.;\n]*/i,
+    /(?:повна|часткова)\s+зайнятість/i,
+    /(?:позмінний|позмінно|змінний)\s+графік/i,
+    /\b[1-6]\s*\/\s*[1-6]\b/i,
+  ]);
+}
+
+function extractEmploymentType(text: string): string | null {
+  if (hasAnyTerm(text.toLowerCase(), ["офіційне працевлаштування", "офіційне оформлення"])) {
+    return "Офіційне працевлаштування";
+  }
+  if (hasAnyTerm(text.toLowerCase(), ["без оформлення", "неофіційно", "оформлення не потрібне"])) {
+    return "Неофіційне оформлення згадується";
+  }
+  return firstMatch(text, [
+    /тип\s+договору\s*[:：-]\s*([^.;\n]{3,120})/i,
+    /трудовий\s+договір/i,
+    /оформлення\s+фоп/i,
+  ]);
+}
+
+function extractExperience(text: string): string | null {
+  return firstMatch(text, [
+    /досвід\s+роботи\s*[:：-]?\s*([^.;\n]{3,100})/i,
+    /без\s+досвіду/i,
+    /досвід\s+від\s+\d+\s+(?:року|років|лет)/i,
+  ]);
+}
+
+function extractEducation(text: string): string | null {
+  return firstMatch(text, [
+    /освіта\s*[:：-]?\s*([^.;\n]{3,100})/i,
+    /вища\s+освіта/i,
+    /середня\s+спеціальна\s+освіта/i,
+  ]);
+}
+
+function extractCompanyDescription(text: string): string | null {
+  const segment = extractSegment(text, ["ми —", "ми -", "про компанію", "компанія"], [
+    "вимоги",
+    "обов’язки",
+    "обов'язки",
+    "ми пропонуємо",
+    "умови",
+    "що ти отримаєш",
+  ]);
+  const cleaned = cleanText(segment).slice(0, 700);
+  return cleaned.length >= 40 ? cleaned : null;
+}
+
+function extractStructuredVacancyFacts(text: string): Omit<
+  ParsedVacancy,
+  "source" | "sourceUrl" | "title" | "companyName" | "city" | "salaryText" | "descriptionText"
+> {
+  const clean = cleanText(text).slice(0, 14000);
+  const lower = clean.toLowerCase();
+  const stopHeadings = [
+    "вимоги",
+    "обов’язки",
+    "обов'язки",
+    "ми пропонуємо",
+    "умови",
+    "що ти отримаєш",
+    "чому саме ми",
+    "надсилай",
+    "про компанію",
+  ];
+  const requirements = splitFactSegment(extractSegment(clean, ["вимоги", "що важливо для цієї ролі"], stopHeadings));
+  const responsibilities = splitFactSegment(extractSegment(clean, ["обов’язки", "обов'язки", "твої основні обов’язки"], stopHeadings));
+  const conditions = splitFactSegment(extractSegment(clean, ["ми пропонуємо", "умови роботи", "що ти отримаєш"], stopHeadings));
+  const benefits = uniqueShortList([
+    ...splitFactSegment(extractSegment(clean, ["переваги", "бенефіти", "benefits"], stopHeadings)),
+    ...(hasAnyTerm(lower, ["медичне страхування", "медстрахування"]) ? ["Медичне страхування"] : []),
+    ...(hasAnyTerm(lower, ["оплачувані відпустки", "оплачувана відпустка"]) ? ["Оплачувана відпустка"] : []),
+    ...(hasAnyTerm(lower, ["кар'єрного зростання", "карʼєрного зростання", "карьерного роста"]) ? ["Можливість кар'єрного зростання"] : []),
+  ]);
+  const skills = uniqueShortList(
+    [...clean.matchAll(/\b(?:MS Excel|Excel|CRM|Tableau|PowerPoint|Word|SQL|JavaScript|TypeScript|React|Node\.js|English|англійська)\b/gi)]
+      .map((match) => match[0]),
+    6
+  );
+
+  return {
+    employmentType: extractEmploymentType(clean),
+    schedule: extractScheduleText(clean),
+    experience: extractExperience(clean),
+    education: extractEducation(clean),
+    skills,
+    benefits,
+    requirements,
+    responsibilities,
+    conditions,
+    companyDescription: extractCompanyDescription(clean),
+    publishedAt: firstMatch(clean, [
+      /вакансія\s+від\s+([^.;\n]{3,80})/i,
+      /(\d{1,2}\s+[а-яіїєґ]+\s+20\d{2})/i,
+    ]),
+    mentionsOfficialEmployment: hasAnyTerm(lower, ["офіційне працевлаштування", "офіційне оформлення", "трудовий договір"]),
+    mentionsBooking: hasBookingWording(lower),
+    mentionsProbation: hasProbationWording(lower),
+    mentionsBonus: hasBonusWording(lower),
   };
 }
 
@@ -533,6 +729,7 @@ function parseWorkUaVacancy(html: string, sourceUrl: string): ParseResult {
   const companyName = rawCompany ? cleanText(rawCompany) : null;
   const cleanedSalary = cleanSalaryText(rawSalary, { title, companyName, city });
   const descriptionText = cleanText([descriptionHtml ? stripHtml(descriptionHtml) : "", meta.parsed.descriptionText].filter(Boolean).join(" ")).slice(0, 14000);
+  const structured = extractStructuredVacancyFacts(cleanText([stripHtml(mainHtml), descriptionText].filter(Boolean).join(" ")));
   const parsed = {
     source: "Work.ua" as const,
     sourceUrl,
@@ -540,6 +737,7 @@ function parseWorkUaVacancy(html: string, sourceUrl: string): ParseResult {
     companyName,
     city,
     salaryText: cleanedSalary,
+    ...structured,
     descriptionText,
   };
 
@@ -594,6 +792,7 @@ function parseRobotaUaVacancy(html: string, sourceUrl: string): ParseResult {
     : null;
   const cleanedSalary = cleanSalaryText(rawSalary, { title, companyName, city });
   const descriptionText = cleanText([descriptionHtml ? stripHtml(descriptionHtml) : "", meta.parsed.descriptionText].filter(Boolean).join(" ")).slice(0, 14000);
+  const structured = extractStructuredVacancyFacts(cleanText([stripHtml(mainHtml), descriptionText].filter(Boolean).join(" ")));
   const parsed = {
     source: "Robota.ua" as const,
     sourceUrl,
@@ -601,6 +800,7 @@ function parseRobotaUaVacancy(html: string, sourceUrl: string): ParseResult {
     companyName,
     city,
     salaryText: cleanedSalary,
+    ...structured,
     descriptionText,
   };
 
@@ -651,6 +851,7 @@ function parseManualVacancy(input: string): ParsedVacancy {
     .map((line) => decodeHtml(line).trim())
     .filter(Boolean);
   const text = cleanText(input);
+  const structured = extractStructuredVacancyFacts(text);
 
   return {
     source: "Вручну",
@@ -675,6 +876,7 @@ function parseManualVacancy(input: string): ParsedVacancy {
       "Location",
     ]),
     salaryText: extractManualSalary(lines),
+    ...structured,
     descriptionText: text,
   };
 }
@@ -879,7 +1081,23 @@ function uniqueItems(items: string[]): string[] {
 }
 
 function vacancyText(parsed: ParsedVacancy): string {
-  return [parsed.title, parsed.companyName, parsed.city, parsed.salaryText, parsed.descriptionText]
+  return [
+    parsed.title,
+    parsed.companyName,
+    parsed.city,
+    parsed.salaryText,
+    parsed.employmentType,
+    parsed.schedule,
+    parsed.experience,
+    parsed.education,
+    parsed.companyDescription,
+    parsed.conditions.join(" "),
+    parsed.benefits.join(" "),
+    parsed.requirements.join(" "),
+    parsed.responsibilities.join(" "),
+    parsed.skills.join(" "),
+    parsed.descriptionText,
+  ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -1079,14 +1297,15 @@ function buildSalaryPreview(parsed: ParsedVacancy): ProPreviewSection {
 function buildEmploymentPreview(parsed: ParsedVacancy): ProPreviewSection {
   const text = vacancyText(parsed);
   const risky = hasAnyTerm(text, ["оформлення не потрібне", "без оформлення", "без офіційного оформлення", "неофіційно"]);
-  const clear = hasAnyTerm(text, ["офіційне працевлаштування", "офіційне оформлення", "трудовий договір"]);
+  const clear = Boolean(parsed.mentionsOfficialEmployment || parsed.employmentType) ||
+    hasAnyTerm(text, ["офіційне працевлаштування", "офіційне оформлення", "трудовий договір"]);
 
   return {
     status: risky ? "risky" : clear ? "clear" : "unclear",
     summary: risky
       ? "У тексті є ризикові формулювання щодо оформлення."
       : clear
-        ? "У вакансії згадується офіційне працевлаштування або оформлення."
+        ? `У вакансії згадується оформлення: ${parsed.employmentType ?? "офіційне працевлаштування"}.`
         : "Недостатньо даних про офіційне оформлення.",
     questions: [
       "Чи є офіційне оформлення з першого дня?",
@@ -1099,14 +1318,14 @@ function buildEmploymentPreview(parsed: ParsedVacancy): ProPreviewSection {
 function buildSchedulePreview(parsed: ParsedVacancy): ProPreviewSection {
   const text = vacancyText(parsed);
   const risky = hasAnyTerm(text, ["ненормований графік", "24/7", "без вихідних", "понаднормово", "сверхурочно"]);
-  const clear = hasClearSchedule(text);
+  const clear = Boolean(parsed.schedule) || hasClearSchedule(text);
 
   return {
     status: risky ? "risky" : clear ? "clear" : "unclear",
     summary: risky
       ? "У тексті є ознаки підвищеного навантаження або нечіткого графіку."
       : clear
-        ? "Графік або тип зайнятості описаний у тексті."
+        ? `Графік або тип зайнятості описаний у тексті${parsed.schedule ? `: ${parsed.schedule}` : ""}.`
         : "Недостатньо даних про графік і навантаження.",
     questions: [
       "Який точний графік?",
@@ -1116,10 +1335,33 @@ function buildSchedulePreview(parsed: ParsedVacancy): ProPreviewSection {
   };
 }
 
+function externalReviewSignalQuestions(
+  summary: ExternalReviewSignalSummary | null
+): string[] {
+  if (!summary || summary.signalCount === 0) return [];
+
+  const topics = new Set(summary.topSignals.map((signal) => signal.topic));
+  return uniqueItems([
+    topics.has("schedule") || topics.has("workload")
+      ? "У відкритих джерелах згадують навантаження. Який фактичний графік і як оплачуються понаднормові?"
+      : null,
+    topics.has("payment_delay")
+      ? "Чи були затримки виплат і як фіксуються умови оплати?"
+      : null,
+    topics.has("employment")
+      ? "Чи є офіційне оформлення з першого дня?"
+      : null,
+    topics.has("management")
+      ? "Як організована комунікація з керівником і хто ухвалює рішення щодо графіку та бонусів?"
+      : null,
+  ].filter(Boolean) as string[]);
+}
+
 function buildProPreview(
   parsed: ParsedVacancy,
   matchedCompany: CompanyRow | null,
-  risk: ReturnType<typeof analyzeRisk>
+  risk: ReturnType<typeof analyzeRisk>,
+  externalReviewSignalSummary: ExternalReviewSignalSummary | null
 ): ProPreview {
   const text = vacancyText(parsed);
   const salary = buildSalaryPreview(parsed);
@@ -1146,6 +1388,7 @@ function buildProPreview(
   if (!matchedCompany) {
     interviewQuestions.push("Чи можете надати повну юридичну назву компанії?");
   }
+  interviewQuestions.push(...externalReviewSignalQuestions(externalReviewSignalSummary));
   interviewQuestions.push("Які умови будуть зафіксовані письмово до початку роботи?");
 
   const documentChecklist = [
@@ -1227,7 +1470,8 @@ function buildVacancyBrief(
   parsed: ParsedVacancy,
   risk: ReturnType<typeof analyzeRisk>,
   proPreview: ProPreview,
-  matchedCompany: CompanyRow | null
+  matchedCompany: CompanyRow | null,
+  externalReviewSignalSummary: ExternalReviewSignalSummary | null
 ): VacancyBrief {
   const text = vacancyText(parsed);
   const bonusMentioned = hasBonusWording(text);
@@ -1311,6 +1555,7 @@ function buildVacancyBrief(
       ? ["Якщо є бронювання: яка підстава, строк і письмове підтвердження?"]
       : []),
     ...(!matchedCompany ? ["Яка повна юридична назва компанії?"] : []),
+    ...externalReviewSignalQuestions(externalReviewSignalSummary),
   ]).slice(0, 5);
 
   const shortVerdict =
@@ -1414,6 +1659,7 @@ export async function POST(req: NextRequest) {
           companyName: null,
           city: null,
           salaryText: null,
+          ...extractStructuredVacancyFacts(""),
           descriptionText: "",
         },
         parsedFrom: "fetch-failed",
@@ -1446,24 +1692,76 @@ export async function POST(req: NextRequest) {
   const matchInput = detected.url ? "" : input;
   const companyMatch = matchCompany(companies, parsed, matchInput);
   const matchedCompany = companyMatch.company;
+  let openFactSave:
+    | { attempted: false }
+    | { attempted: true; ok: boolean; error?: string; missingTable?: boolean } = { attempted: false };
   const internalReviews = matchedCompany
     ? await loadReviewsSummary(matchedCompany.slug)
     : { reviewCount: 0, averageRating: null, riskSignals: [], recentReviews: [] };
   const externalRatings = matchedCompany
     ? await getPublicExternalRatings(matchedCompany.slug)
     : [];
+  const externalReviewSignals = matchedCompany
+    ? await getPublicExternalReviewSignalSummary(matchedCompany.slug)
+    : null;
   const baseRisk = analyzeRisk(parsed, internalReviews.riskSignals);
   const risk = {
     ...baseRisk,
     warnings: [...baseRisk.warnings, ...warnings],
   };
-  const proPreview = buildProPreview(parsed, matchedCompany, risk);
+  const proPreview = buildProPreview(parsed, matchedCompany, risk, externalReviewSignals);
   const analysis = {
     freeSummary: buildFreeSummary(parsed, matchedCompany, risk),
     companyInsight: buildCompanyInsight(matchedCompany, internalReviews, externalRatings.length),
     proPreview,
-    vacancyBrief: buildVacancyBrief(parsed, risk, proPreview, matchedCompany),
+    vacancyBrief: buildVacancyBrief(parsed, risk, proPreview, matchedCompany, externalReviewSignals),
   };
+
+  const topCompanyCandidate = companyMatch.candidates[0];
+  const shouldSaveOpenFact =
+    detected.url &&
+    (detected.inputType === "work.ua URL" || detected.inputType === "robota.ua URL") &&
+    matchedCompany &&
+    topCompanyCandidate &&
+    topCompanyCandidate.slug === matchedCompany.slug &&
+    topCompanyCandidate.score >= 900 &&
+    Boolean(parsed.title || parsed.salaryText || parsed.city || parsed.descriptionText);
+
+  if (shouldSaveOpenFact && matchedCompany) {
+    const result = await upsertCompanyOpenFactFromVacancy({
+      company_slug: matchedCompany.slug,
+      company_name: matchedCompany.name,
+      source_name: parsed.source,
+      source_url: parsed.sourceUrl,
+      vacancy_title: parsed.title,
+      city: parsed.city,
+      salary_text: parsed.salaryText,
+      employment_type: parsed.employmentType,
+      schedule: parsed.schedule,
+      experience: parsed.experience,
+      education: parsed.education,
+      company_description: parsed.companyDescription,
+      vacancy_description: parsed.descriptionText.slice(0, 6000),
+      requirements: parsed.requirements,
+      responsibilities: parsed.responsibilities,
+      conditions: parsed.conditions,
+      benefits: parsed.benefits,
+      skills: parsed.skills,
+      mentions_official_employment: parsed.mentionsOfficialEmployment,
+      mentions_booking: parsed.mentionsBooking,
+      mentions_probation: parsed.mentionsProbation,
+      mentions_bonus: parsed.mentionsBonus,
+      raw_excerpt: parsed.descriptionText.slice(0, 2000),
+      status: "needs_verification",
+      is_public: false,
+    });
+    openFactSave = result.ok
+      ? { attempted: true, ok: true }
+      : { attempted: true, ok: false, error: result.error, missingTable: result.missingTable };
+    if (!result.ok && process.env.NODE_ENV === "development") {
+      console.warn("[check-vacancy] company_open_facts save skipped:", result.error);
+    }
+  }
 
   return NextResponse.json({
     ok: true,
@@ -1472,6 +1770,7 @@ export async function POST(req: NextRequest) {
     matchedCompany,
     internalReviews,
     externalRatings,
+    externalReviewSignals,
     risk,
     analysis,
     fallbackReason,
@@ -1488,6 +1787,7 @@ export async function POST(req: NextRequest) {
             cleanedSalary: parseResult.cleanedSalary,
             mainTextPreview: parseResult.mainTextPreview,
             companyMatchCandidates: companyMatch.candidates,
+            openFactSave,
           },
         }
       : {}),
