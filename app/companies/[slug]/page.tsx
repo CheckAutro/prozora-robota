@@ -16,6 +16,7 @@ import {
 } from "@/lib/company-service";
 import { getPublicExternalRatings } from "@/lib/external-ratings-service";
 import {
+  getPublicCompanyOpenFacts,
   getPublicCompanyOpenFactsSummary,
   type CompanyOpenFactSummary,
 } from "@/lib/company-open-facts-service";
@@ -28,7 +29,7 @@ import {
 } from "@/lib/external-review-signals-service";
 import { getServerClient } from "@/lib/supabase/server";
 import { normalizeIndustry } from "@/lib/industry";
-import type { ExternalRating, ExternalReviewSignal } from "@/lib/types";
+import type { CompanyOpenFact, ExternalRating, ExternalReviewSignal } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CompanyReviewsSection } from "@/components/product/CompanyReviews";
@@ -40,6 +41,8 @@ import { ExternalRatingsSection } from "@/components/product/ExternalRatingsSect
 export function generateStaticParams() {
   return COMPANIES.map((c) => ({ slug: c.slug }));
 }
+
+export const dynamic = "force-dynamic";
 
 // ── Lightweight server-side review counter ────────────────────────────────────
 // Used only by generateMetadata so we can write honest descriptions.
@@ -295,6 +298,86 @@ function ExternalReviewSignalsSection({
                   </a>
                 )}
               </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TextPills({ label, values }: { label: string; values: string[] }) {
+  if (values.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="mb-2 text-xs font-semibold text-ink">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {values.slice(0, 5).map((value) => (
+          <span key={value} className="rounded-lg bg-ink/[0.04] px-2.5 py-1 text-xs text-ink-soft">
+            {value}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompanyOpenFactsSection({
+  facts,
+}: {
+  facts: CompanyOpenFact[];
+}) {
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h2 className="font-display text-lg font-bold text-ink">
+          Дані з відкритих вакансій
+        </h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          Це дані з відкритих вакансій. Вони є заявленими умовами роботодавця і
+          можуть відрізнятися від фактичних умов.
+        </p>
+      </div>
+
+      {facts.length === 0 ? (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Підтверджених даних з відкритих вакансій поки немає.
+        </p>
+      ) : (
+        <div className="grid gap-3">
+          {facts.map((fact) => (
+            <div key={fact.id} className="rounded-xl border border-ink/[0.06] bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-ink">
+                    {fact.vacancyTitle ?? "Вакансія без назви"}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {fact.sourceName} · зібрано: {formatDate(fact.collectedAt)}
+                  </p>
+                </div>
+                {fact.sourceUrl && (
+                  <a
+                    href={fact.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium text-brand-700 hover:text-brand-800"
+                  >
+                    Джерело
+                  </a>
+                )}
+              </div>
+
+              <div className="mt-3 grid gap-2 text-sm text-ink-soft sm:grid-cols-2">
+                <span><strong className="text-ink">Місто:</strong> {fact.city ?? "Не вказано"}</span>
+                <span><strong className="text-ink">Зарплата:</strong> {fact.salaryText ?? "Не вказана"}</span>
+                <span><strong className="text-ink">Графік:</strong> {fact.schedule ?? "Не вказано"}</span>
+                <span><strong className="text-ink">Оформлення:</strong> {fact.employmentType ?? "Не вказано"}</span>
+              </div>
+
+              <TextPills label="Умови" values={fact.conditions} />
+              <TextPills label="Переваги" values={fact.benefits} />
+              <TextPills label="Вимоги" values={fact.requirements} />
             </div>
           ))}
         </div>
@@ -596,11 +679,19 @@ export default async function CompanyPage({
     // Check if it's a known mock slug (Supabase may not be configured yet)
     const mockFallback = COMPANIES.find((c) => c.slug === slug);
     if (!mockFallback) notFound();
-    const [externalRatings, externalReviewSignals, externalReviewSignalSummary, reviewFacts, openFactSummary] = await Promise.all([
+    const [
+      externalRatings,
+      externalReviewSignals,
+      externalReviewSignalSummary,
+      reviewFacts,
+      openFacts,
+      openFactSummary,
+    ] = await Promise.all([
       getPublicExternalRatings(slug),
       getPublicExternalReviewSignals(slug),
       getPublicExternalReviewSignalSummary(slug),
       getPublishedCompanyReviewFacts(slug),
+      getPublicCompanyOpenFacts(slug),
       getPublicCompanyOpenFactsSummary(slug),
     ]);
     const fallbackIndustry = normalizeIndustry(mockFallback.industry);
@@ -651,6 +742,7 @@ export default async function CompanyPage({
         </section>
         <ExternalRatingsSection ratings={externalRatings} />
         <ExternalReviewSignalsSection signals={externalReviewSignals} />
+        <CompanyOpenFactsSection facts={openFacts} />
         <CompanyProAnalysis
           facts={reviewFacts}
           externalRatings={externalRatings}
@@ -667,11 +759,19 @@ export default async function CompanyPage({
 
   // ── Main page: real Supabase company + real published reviews ─────────────
   const industry = normalizeIndustry(sbCompany.industry);
-  const [externalRatings, externalReviewSignals, externalReviewSignalSummary, reviewFacts, openFactSummary] = await Promise.all([
+  const [
+    externalRatings,
+    externalReviewSignals,
+    externalReviewSignalSummary,
+    reviewFacts,
+    openFacts,
+    openFactSummary,
+  ] = await Promise.all([
     getPublicExternalRatings(sbCompany.slug),
     getPublicExternalReviewSignals(sbCompany.slug),
     getPublicExternalReviewSignalSummary(sbCompany.slug),
     getPublishedCompanyReviewFacts(sbCompany.slug),
+    getPublicCompanyOpenFacts(sbCompany.slug),
     getPublicCompanyOpenFactsSummary(sbCompany.slug),
   ]);
 
@@ -725,6 +825,7 @@ export default async function CompanyPage({
 
       <ExternalRatingsSection ratings={externalRatings} />
       <ExternalReviewSignalsSection signals={externalReviewSignals} />
+      <CompanyOpenFactsSection facts={openFacts} />
 
       <CompanyProAnalysis
         facts={reviewFacts}

@@ -72,10 +72,11 @@ function CompanyCardInner({
       ? `є дані з ${openFactSummary.sources.slice(0, 3).join(" / ")}`
       : `${openFactSummary?.factsCount ?? 0} відкриті джерела`
     : null;
-  const analysisText = hasReviews && (hasExternalRatings || hasOpenFacts)
+  const hasAnyExternalData = hasExternalRatings || hasOpenFacts || hasExternalReviewSignals;
+  const analysisText = hasReviews && hasAnyExternalData
     ? "є відгуки та відкриті джерела"
     : hasReviews
-      ? (hasExternalReviewSignals ? "є відгуки та відкриті джерела" : "є відгуки на Прозора робота")
+      ? "є відгуки на Прозора робота"
       : hasExternalReviewSignals
         ? "є зовнішні сигнали, але мало відгуків"
         : hasOpenFacts
@@ -152,18 +153,18 @@ function CompanyCardInner({
 
         <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
           <span className="inline-flex items-center gap-1 font-semibold text-ink">
-            <FileText className="h-3.5 w-3.5 text-brand-600" />
-            Вакансії:
-          </span>
-          {vacancyDetails ? <span>{vacancyDetails}</span> : <span>даних поки немає</span>}
-        </p>
-
-        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
-          <span className="inline-flex items-center gap-1 font-semibold text-ink">
             <MessageSquareText className="h-3.5 w-3.5 text-brand-600" />
             Сигнали:
           </span>
           {signalDetails ? <span>{signalDetails}</span> : <span>поки недостатньо даних</span>}
+        </p>
+
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
+          <span className="inline-flex items-center gap-1 font-semibold text-ink">
+            <FileText className="h-3.5 w-3.5 text-brand-600" />
+            Вакансії:
+          </span>
+          {vacancyDetails ? <span>{vacancyDetails}</span> : <span>даних поки немає</span>}
         </p>
 
         <p className="text-xs text-ink-muted">

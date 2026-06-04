@@ -16,6 +16,7 @@
     "export:company-open-facts": "npx tsx scripts/export-company-open-facts-template.ts",
     "import:company-open-facts": "npx tsx scripts/import-company-open-facts.ts",
     "check:company-open-facts": "npx tsx scripts/check-company-open-facts.ts",
+    "publish:trusted-company-open-facts": "npx tsx scripts/publish-trusted-company-open-facts.ts",
     "export:external-review-signals": "npx tsx scripts/export-external-review-signals-template.ts",
     "import:external-review-signals": "npx tsx scripts/import-external-review-signals.ts",
     "check:external-review-signals": "npx tsx scripts/check-external-review-signals.ts"

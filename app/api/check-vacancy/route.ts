@@ -5,7 +5,10 @@ import {
   getPublicExternalReviewSignalSummary,
   type ExternalReviewSignalSummary,
 } from "@/lib/external-review-signals-service";
-import { upsertCompanyOpenFactFromVacancy } from "@/lib/company-open-facts-service";
+import {
+  getPublicCompanyOpenFactsSummary,
+  upsertCompanyOpenFactFromVacancy,
+} from "@/lib/company-open-facts-service";
 import { slugifyCompanyName } from "@/lib/slugify";
 import { fromRow, type ReviewRow } from "@/lib/storage";
 import type { Review } from "@/lib/types";
@@ -1694,7 +1697,15 @@ export async function POST(req: NextRequest) {
   const matchedCompany = companyMatch.company;
   let openFactSave:
     | { attempted: false }
-    | { attempted: true; ok: boolean; error?: string; missingTable?: boolean } = { attempted: false };
+    | {
+        attempted: true;
+        ok: boolean;
+        error?: string;
+        missingTable?: boolean;
+        autoPublished: boolean;
+        status: "verified" | "needs_verification";
+        isPublic: boolean;
+      } = { attempted: false };
   const internalReviews = matchedCompany
     ? await loadReviewsSummary(matchedCompany.slug)
     : { reviewCount: 0, averageRating: null, riskSignals: [], recentReviews: [] };
@@ -1703,6 +1714,9 @@ export async function POST(req: NextRequest) {
     : [];
   const externalReviewSignals = matchedCompany
     ? await getPublicExternalReviewSignalSummary(matchedCompany.slug)
+    : null;
+  const companyOpenFacts = matchedCompany
+    ? await getPublicCompanyOpenFactsSummary(matchedCompany.slug)
     : null;
   const baseRisk = analyzeRisk(parsed, internalReviews.riskSignals);
   const risk = {
@@ -1726,6 +1740,23 @@ export async function POST(req: NextRequest) {
     topCompanyCandidate.slug === matchedCompany.slug &&
     topCompanyCandidate.score >= 900 &&
     Boolean(parsed.title || parsed.salaryText || parsed.city || parsed.descriptionText);
+  const trustedVacancySource =
+    parsed.sourceUrl &&
+    (parsed.source === "Work.ua" || parsed.source === "Robota.ua") &&
+    (detected.inputType === "work.ua URL" || detected.inputType === "robota.ua URL");
+  const hasMinimumTrustedFacts = Boolean(
+    parsed.title &&
+    (parsed.city || parsed.salaryText || parsed.descriptionText || parsed.schedule || parsed.employmentType)
+  );
+  const shouldAutoPublishOpenFact = Boolean(
+    shouldSaveOpenFact &&
+    trustedVacancySource &&
+    matchedCompany?.slug &&
+    matchedCompany?.name &&
+    hasMinimumTrustedFacts
+  );
+  const openFactStatus = shouldAutoPublishOpenFact ? "verified" : "needs_verification";
+  const openFactIsPublic = shouldAutoPublishOpenFact;
 
   if (shouldSaveOpenFact && matchedCompany) {
     const result = await upsertCompanyOpenFactFromVacancy({
@@ -1752,12 +1783,26 @@ export async function POST(req: NextRequest) {
       mentions_probation: parsed.mentionsProbation,
       mentions_bonus: parsed.mentionsBonus,
       raw_excerpt: parsed.descriptionText.slice(0, 2000),
-      status: "needs_verification",
-      is_public: false,
+      status: openFactStatus,
+      is_public: openFactIsPublic,
     });
     openFactSave = result.ok
-      ? { attempted: true, ok: true }
-      : { attempted: true, ok: false, error: result.error, missingTable: result.missingTable };
+      ? {
+          attempted: true,
+          ok: true,
+          autoPublished: shouldAutoPublishOpenFact,
+          status: openFactStatus,
+          isPublic: openFactIsPublic,
+        }
+      : {
+          attempted: true,
+          ok: false,
+          error: result.error,
+          missingTable: result.missingTable,
+          autoPublished: shouldAutoPublishOpenFact,
+          status: openFactStatus,
+          isPublic: openFactIsPublic,
+        };
     if (!result.ok && process.env.NODE_ENV === "development") {
       console.warn("[check-vacancy] company_open_facts save skipped:", result.error);
     }
@@ -1771,6 +1816,7 @@ export async function POST(req: NextRequest) {
     internalReviews,
     externalRatings,
     externalReviewSignals,
+    companyOpenFacts,
     risk,
     analysis,
     fallbackReason,
@@ -1788,6 +1834,10 @@ export async function POST(req: NextRequest) {
             mainTextPreview: parseResult.mainTextPreview,
             companyMatchCandidates: companyMatch.candidates,
             openFactSave,
+            openFactSaved: openFactSave.attempted ? openFactSave.ok : false,
+            openFactAutoPublished: openFactSave.attempted ? openFactSave.autoPublished : false,
+            openFactStatus: openFactSave.attempted ? openFactSave.status : null,
+            openFactIsPublic: openFactSave.attempted ? openFactSave.isPublic : false,
           },
         }
       : {}),

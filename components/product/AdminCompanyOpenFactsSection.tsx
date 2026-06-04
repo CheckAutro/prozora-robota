@@ -419,6 +419,10 @@ export function AdminCompanyOpenFactsSection({ accessToken }: { accessToken: str
             Окремі факти з Work.ua / Robota.ua. Не додаються до відгуків,
             зовнішніх оцінок або внутрішнього рейтингу.
           </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            Дані з Work.ua / Robota.ua можуть публікуватися автоматично після
+            точного збігу компанії. Це не відгуки і не впливає на рейтинг.
+          </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => void load()}>
           <RefreshCw className="h-3.5 w-3.5" />

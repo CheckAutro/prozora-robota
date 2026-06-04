@@ -182,6 +182,26 @@ interface ExternalReviewSignalSummary {
   topSignals: ExternalReviewTopSignal[];
 }
 
+interface CompanyOpenFactSummary {
+  companySlug: string;
+  factsCount: number;
+  sourceCount: number;
+  sources: string[];
+  cities: string[];
+  salaryExamples: string[];
+  vacancyTitles: string[];
+  schedules: string[];
+  employmentTypes: string[];
+  benefits: string[];
+  requirements: string[];
+  conditions: string[];
+  hasOfficialEmploymentMention: boolean;
+  hasBookingMention: boolean;
+  hasBonusMention: boolean;
+  companyDescription: string | null;
+  latestCollectedAt: string | null;
+}
+
 interface VacancyReport {
   ok: true;
   inputType: string;
@@ -190,6 +210,7 @@ interface VacancyReport {
   internalReviews: InternalReviewsSummary;
   externalRatings: ExternalRating[];
   externalReviewSignals: ExternalReviewSignalSummary | null;
+  companyOpenFacts: CompanyOpenFactSummary | null;
   risk: VacancyRiskReport;
   analysis: VacancyAnalysis;
   fallbackReason: string | null;
@@ -868,6 +889,64 @@ function ExternalReviewSignalsSection({
   );
 }
 
+function CompanyOpenFactsSection({
+  company,
+  summary,
+}: {
+  company: ReportCompany | null;
+  summary: CompanyOpenFactSummary | null;
+}) {
+  const hasFacts = Boolean(summary && summary.factsCount > 0);
+  const rows = [
+    summary?.sources.length ? `Джерела: ${summary.sources.slice(0, 3).join(" / ")}` : null,
+    summary?.cities.length ? `Міста: ${summary.cities.slice(0, 3).join(", ")}` : null,
+    summary?.salaryExamples.length ? `Приклади зарплати: ${summary.salaryExamples.slice(0, 3).join("; ")}` : null,
+    summary?.schedules.length ? `Графік: ${summary.schedules.slice(0, 3).join("; ")}` : null,
+    summary?.employmentTypes.length ? `Оформлення: ${summary.employmentTypes.slice(0, 3).join("; ")}` : null,
+  ].filter(Boolean) as string[];
+
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="font-display text-lg font-bold text-ink">
+          Дані з відкритих вакансій про компанію
+        </h3>
+        <p className="mt-1 text-sm text-ink-soft">
+          Це заявлені умови з відкритих вакансій. Вони не є відгуками працівників
+          і можуть відрізнятися від фактичних умов.
+        </p>
+      </div>
+
+      {!company && (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Дані з відкритих вакансій показуються після надійного визначення компанії.
+        </p>
+      )}
+
+      {company && !hasFacts && (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Підтверджених даних з відкритих вакансій поки немає.
+        </p>
+      )}
+
+      {hasFacts && (
+        <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
+          <p className="text-sm font-semibold text-ink">
+            За даними відкритих вакансій: {formatNumber(summary?.factsCount ?? 0)} записів
+          </p>
+          <ul className="space-y-2">
+            {rows.map((row) => (
+              <li key={row} className="text-sm leading-relaxed text-ink-soft">
+                {row}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function MissingInfoSection({ items }: { items: string[] }) {
   return (
     <Card className="space-y-3 p-6">
@@ -1059,6 +1138,10 @@ function ResultReport({ report }: { report: VacancyReport }) {
       <ExternalReviewSignalsSection
         company={report.matchedCompany}
         summary={report.externalReviewSignals}
+      />
+      <CompanyOpenFactsSection
+        company={report.matchedCompany}
+        summary={report.companyOpenFacts}
       />
       <RiskSection summary={report.analysis.freeSummary} />
       <MissingInfoSection items={report.analysis.freeSummary.missingInfo} />
