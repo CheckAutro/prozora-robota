@@ -50,7 +50,6 @@ function buildRequestBody(config: ProviderConfig, input: PromptInput): Record<st
       ],
       temperature: 0.1,
       text: { format: { type: "json_object" } },
-      metadata: { schema_name: input.schemaName },
     };
   }
 
@@ -62,8 +61,43 @@ function buildRequestBody(config: ProviderConfig, input: PromptInput): Record<st
       { role: "system", content: input.systemPrompt },
       { role: "user", content: input.userPrompt },
     ],
-    metadata: { schema_name: input.schemaName },
   };
+}
+
+function previewText(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > 700 ? `${compact.slice(0, 700)}…` : compact;
+}
+
+function readErrorDetails(payload: unknown): {
+  type: string | null;
+  code: string | null;
+  param: string | null;
+  message: string | null;
+} {
+  if (!payload || typeof payload !== "object") {
+    return { type: null, code: null, param: null, message: null };
+  }
+
+  const record = payload as Record<string, unknown>;
+  const error = record.error;
+  const source = error && typeof error === "object" ? (error as Record<string, unknown>) : record;
+
+  const readString = (value: unknown): string | null =>
+    typeof value === "string" && value.trim() ? value.trim() : null;
+
+  return {
+    type: readString(source.type),
+    code: readString(source.code),
+    param: readString(source.param),
+    message: readString(source.message) ?? readString(record.message),
+  };
+}
+
+function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenceMatch ? fenceMatch[1].trim() : trimmed;
 }
 
 function extractTextFromResponse(payload: unknown): string | null {
@@ -135,16 +169,24 @@ async function requestOnce(config: ProviderConfig, input: PromptInput): Promise<
       body: JSON.stringify(buildRequestBody(config, input)),
     });
 
-    const payload = await response.json().catch(() => null);
+    const rawText = await response.text().catch(() => "");
+    const rawPreview = rawText ? previewText(rawText) : null;
+    const payload = rawText ? (() => {
+      try {
+        return JSON.parse(rawText) as unknown;
+      } catch {
+        return null;
+      }
+    })() : null;
     if (!response.ok) {
       const status = response.status;
-      const detail =
-        payload && typeof payload === "object" && "error" in payload
-          ? String((payload as Record<string, unknown>).error ?? "")
-          : "";
-      console.warn(
-        `[ai-provider] ${config.provider} ${config.apiUrl.replace(/https?:\/\/[^/]+/, "")} responded ${status}${detail ? `: ${detail}` : ""}`
-      );
+      const details = readErrorDetails(payload);
+      console.warn(`[ai-provider] OpenAI error ${status}`);
+      if (details.type) console.warn(`type: ${details.type}`);
+      if (details.code) console.warn(`code: ${details.code}`);
+      if (details.param) console.warn(`param: ${details.param}`);
+      if (details.message) console.warn(`message: ${details.message}`);
+      if (rawPreview) console.warn(`raw response preview: ${rawPreview}`);
       return null;
     }
 
@@ -155,7 +197,7 @@ async function requestOnce(config: ProviderConfig, input: PromptInput): Promise<
     }
 
     try {
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(stripCodeFence(text));
       return parsed;
     } catch {
       console.warn(`[ai-provider] ${config.provider} returned invalid JSON for ${input.schemaName}`);

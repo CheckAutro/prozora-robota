@@ -262,7 +262,7 @@ function normalizeContextSafety(
 function buildSystemPrompt(): string {
   return [
     "You analyze Ukrainian employer and vacancy context.",
-    "Return only strict JSON, no markdown, no extra prose.",
+    "Return valid JSON only. Do not use Markdown.",
     "Never invent reviews, salaries, ratings, reputation, or facts.",
     "If data is insufficient, say insufficient data.",
     "AI analysis is not a review and does not affect ratings.",
