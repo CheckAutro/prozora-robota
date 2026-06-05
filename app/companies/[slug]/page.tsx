@@ -93,6 +93,46 @@ function shortText(value: string | null, limit = 240): string | null {
   return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
 }
 
+function isSourceSummaryFact(fact: CompanyOpenFact): boolean {
+  const title = fact.vacancyTitle?.toLowerCase() ?? "";
+  const excerpt = fact.rawExcerpt?.toLowerCase() ?? "";
+  return (
+    title.startsWith("сторінка компанії на") ||
+    title.includes("сторінка компанії у джерелі") ||
+    excerpt.includes("компанія має сторінку")
+  );
+}
+
+function getRealVacancyFacts(facts: CompanyOpenFact[]): CompanyOpenFact[] {
+  return facts.filter((fact) => !isSourceSummaryFact(fact));
+}
+
+function getSourceSummaryFacts(facts: CompanyOpenFact[]): CompanyOpenFact[] {
+  return facts.filter(isSourceSummaryFact);
+}
+
+function uniqueText(values: Array<string | null | undefined>, limit: number): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const text = value?.trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function extractOpenVacanciesCount(rawExcerpt: string | null): number | null {
+  const match = rawExcerpt?.match(/Кількість відкритих вакансій у списку:\s*(\d+)/i);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
 function joinExamples(label: string, values: string[]): string | null {
   if (values.length === 0) return null;
   return `${label}: ${values.slice(0, 3).join("; ")}.`;
@@ -138,11 +178,13 @@ function externalSignalTopicList(summary: ExternalReviewSignalSummary): string {
 function CompanyDataSummary({
   facts,
   externalRatings,
+  openFacts,
   openFactSummary,
   externalReviewSignalSummary,
 }: {
   facts: PublishedCompanyReviewFacts;
   externalRatings: ExternalRating[];
+  openFacts: CompanyOpenFact[];
   openFactSummary: CompanyOpenFactSummary;
   externalReviewSignalSummary: ExternalReviewSignalSummary;
 }) {
@@ -152,6 +194,8 @@ function CompanyDataSummary({
     openFactSummary.factsCount,
     externalReviewSignalSummary.signalCount
   );
+  const realVacancyFacts = getRealVacancyFacts(openFacts);
+  const sourceSummaryFacts = getSourceSummaryFacts(openFacts);
   const cards = [
     {
       icon: MessageSquareText,
@@ -164,9 +208,11 @@ function CompanyDataSummary({
     {
       icon: FileText,
       label: "Вакансії",
-      value: openFactSummary.factsCount > 0
+      value: realVacancyFacts.length > 0
         ? "Є дані з відкритих вакансій"
-        : "Даних з відкритих вакансій поки немає",
+        : sourceSummaryFacts.length > 0
+          ? "Є сторінка компанії у відкритому джерелі"
+          : "Даних з відкритих вакансій поки немає",
       tone: openFactSummary.factsCount > 0 ? "text-brand-700 bg-brand-50" : "text-ink-soft bg-ink/[0.03]",
     },
     {
@@ -220,6 +266,7 @@ function CompanyShortAnalysis({
   city,
   facts,
   externalRatings,
+  openFacts,
   openFactSummary,
   externalReviewSignalSummary,
 }: {
@@ -228,6 +275,7 @@ function CompanyShortAnalysis({
   city: string | null;
   facts: PublishedCompanyReviewFacts;
   externalRatings: ExternalRating[];
+  openFacts: CompanyOpenFact[];
   openFactSummary: CompanyOpenFactSummary;
   externalReviewSignalSummary: ExternalReviewSignalSummary;
 }) {
@@ -242,15 +290,31 @@ function CompanyShortAnalysis({
     externalRatings.length === 0 &&
     openFactSummary.factsCount === 0 &&
     externalReviewSignalSummary.signalCount === 0;
+  const realVacancyFacts = getRealVacancyFacts(openFacts);
+  const sourceSummaryFacts = getSourceSummaryFacts(openFacts);
   const conclusion = noData
     ? "Поки недостатньо даних для оцінки роботодавця. На Прозора робота ще немає опублікованих відгуків, підтверджених зовнішніх оцінок або узагальнених сигналів поки немає."
-    : facts.reviewCount === 0 && openFactSummary.factsCount > 0
+    : facts.reviewCount === 0 && realVacancyFacts.length > 0
       ? "Є часткові дані з відкритих вакансій, але недостатньо відгуків працівників. Умови потрібно підтверджувати напряму з роботодавцем."
+    : facts.reviewCount === 0 && sourceSummaryFacts.length > 0
+      ? "Є сторінка компанії у відкритому джерелі, але конкретні умови вакансій потрібно перевіряти окремо."
     : facts.reviewCount === 0 && externalReviewSignalSummary.signalCount > 0
       ? "Є часткові узагальнення за відкритими джерелами, але недостатньо відгуків на Прозора робота. Ці сигнали потрібно перевіряти на співбесіді."
     : dataLevel === "Є часткові дані"
       ? "Є часткові дані про роботодавця. Висновок варто робити обережно і тільки після уточнення ключових умов."
       : "Є кілька джерел даних про роботодавця, але рішення все одно варто підтверджувати письмовими умовами.";
+  const realVacancyTitles = uniqueText(realVacancyFacts.map((fact) => fact.vacancyTitle), 3);
+  const sourceSummaryLines = uniqueText(
+    sourceSummaryFacts.map((fact) => `Джерело: сторінка компанії на ${fact.sourceName}.`),
+    3
+  );
+  const sourceVacancyCountLines = uniqueText(
+    sourceSummaryFacts.map((fact) => {
+      const count = extractOpenVacanciesCount(fact.rawExcerpt);
+      return count === null ? null : `Вакансій у відкритому джерелі: ${count}.`;
+    }),
+    3
+  );
   const known = [
     "Компанія є в каталозі.",
     industry ? `Сфера: ${industry}.` : "Сфера не вказана.",
@@ -261,9 +325,11 @@ function CompanyShortAnalysis({
     externalReviewSignalSummary.topics.length > 0
       ? `Найчастіші теми за відкритими джерелами: ${externalSignalTopicList(externalReviewSignalSummary)}.`
       : null,
-    openFactSummary.factsCount > 0 ? `Є дані з відкритих вакансій: ${openFactSummary.sources.join(" / ")}.` : null,
+    openFactSummary.factsCount > 0 ? `Є відкриті факти: ${openFactSummary.sources.join(" / ")}.` : null,
+    ...sourceSummaryLines,
+    ...sourceVacancyCountLines,
     joinExamples("У вакансіях згадуються міста", openFactSummary.cities),
-    joinExamples("Приклади посад", openFactSummary.vacancyTitles),
+    joinExamples("Приклади посад", realVacancyTitles),
     joinExamples("Приклади зарплати", openFactSummary.salaryExamples),
     joinExamples("Умови", openFactSummary.conditions),
   ].filter(Boolean) as string[];
@@ -427,12 +493,6 @@ function TextPills({ label, values }: { label: string; values: string[] }) {
   );
 }
 
-function isSourceSummaryFact(fact: CompanyOpenFact): boolean {
-  const title = fact.vacancyTitle?.toLowerCase() ?? "";
-  const excerpt = fact.rawExcerpt?.toLowerCase() ?? "";
-  return title.startsWith("сторінка компанії на") || excerpt.includes("компанія має сторінку");
-}
-
 function sourceLinkLabel(sourceName: string): string {
   if (/work\.ua/i.test(sourceName)) return "Відкрити на Work.ua ↗";
   if (/robota\.ua/i.test(sourceName)) return "Відкрити на Robota.ua ↗";
@@ -444,6 +504,9 @@ function CompanyOpenFactsSection({
 }: {
   facts: CompanyOpenFact[];
 }) {
+  const sourceSummaryFacts = getSourceSummaryFacts(facts);
+  const realVacancyFacts = getRealVacancyFacts(facts);
+
   return (
     <Card className="space-y-4 p-6">
       <div>
@@ -461,34 +524,76 @@ function CompanyOpenFactsSection({
           Підтверджених даних з відкритих вакансій поки немає.
         </p>
       ) : (
-        <div className="grid gap-3">
-          {facts.map((fact) => (
-            <div key={fact.id} className="rounded-xl border border-ink/[0.06] bg-white p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-ink">
-                    {isSourceSummaryFact(fact)
-                      ? `Сторінка компанії у джерелі: ${fact.sourceName}`
-                      : fact.vacancyTitle ?? "Вакансія без назви"}
-                  </p>
-                  <p className="mt-1 text-xs text-ink-muted">
-                    {fact.sourceName} · зібрано: {formatDate(fact.collectedAt)}
-                  </p>
-                </div>
-                {fact.sourceUrl && (
-                  <a
-                    href={fact.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm font-medium text-brand-700 hover:text-brand-800"
-                  >
-                    {sourceLinkLabel(fact.sourceName)}
-                  </a>
-                )}
-              </div>
+        <div className="space-y-4">
+          {sourceSummaryFacts.length > 0 && (
+            <div className="grid gap-3">
+              {sourceSummaryFacts.map((fact) => {
+                const count = extractOpenVacanciesCount(fact.rawExcerpt);
+                return (
+                  <div key={fact.id} className="rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-ink">
+                          Сторінка компанії у джерелі: {fact.sourceName}
+                        </p>
+                        <p className="mt-1 text-xs text-ink-muted">
+                          Зібрано: {formatDate(fact.collectedAt)}
+                        </p>
+                      </div>
+                      {fact.sourceUrl && (
+                        <a
+                          href={fact.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-brand-700 hover:text-brand-800"
+                        >
+                          {sourceLinkLabel(fact.sourceName)}
+                        </a>
+                      )}
+                    </div>
 
-              {!isSourceSummaryFact(fact) && (
-                <>
+                    {count !== null && (
+                      <div className="mt-3 inline-flex rounded-xl border border-brand-200 bg-white px-3 py-2 text-sm font-semibold text-brand-700">
+                        Вакансій у відкритому джерелі: {count}
+                      </div>
+                    )}
+
+                    {shortText(fact.rawExcerpt) && (
+                      <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-xs leading-relaxed text-ink-muted">
+                        {shortText(fact.rawExcerpt)}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {realVacancyFacts.length > 0 && (
+            <div className="grid gap-3">
+              {realVacancyFacts.map((fact) => (
+                <div key={fact.id} className="rounded-xl border border-ink/[0.06] bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {fact.vacancyTitle ?? "Вакансія без назви"}
+                      </p>
+                      <p className="mt-1 text-xs text-ink-muted">
+                        {fact.sourceName} · зібрано: {formatDate(fact.collectedAt)}
+                      </p>
+                    </div>
+                    {fact.sourceUrl && (
+                      <a
+                        href={fact.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-brand-700 hover:text-brand-800"
+                      >
+                        {sourceLinkLabel(fact.sourceName)}
+                      </a>
+                    )}
+                  </div>
+
                   <div className="mt-3 grid gap-2 text-sm text-ink-soft sm:grid-cols-2">
                     <span><strong className="text-ink">Місто:</strong> {fact.city ?? "Не вказано"}</span>
                     <span><strong className="text-ink">Зарплата:</strong> {fact.salaryText ?? "Не вказана"}</span>
@@ -499,16 +604,16 @@ function CompanyOpenFactsSection({
                   <TextPills label="Умови" values={fact.conditions} />
                   <TextPills label="Переваги" values={fact.benefits} />
                   <TextPills label="Вимоги" values={fact.requirements} />
-                </>
-              )}
 
-              {shortText(fact.rawExcerpt) && (
-                <p className="mt-3 rounded-lg bg-ink/[0.03] px-3 py-2 text-xs leading-relaxed text-ink-muted">
-                  {shortText(fact.rawExcerpt)}
-                </p>
-              )}
+                  {shortText(fact.rawExcerpt) && (
+                    <p className="mt-3 rounded-lg bg-ink/[0.03] px-3 py-2 text-xs leading-relaxed text-ink-muted">
+                      {shortText(fact.rawExcerpt)}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </Card>
@@ -546,6 +651,24 @@ function InterviewChecklistSection() {
   );
 }
 
+function AddAnonymousReviewCta({ companySlug }: { companySlug: string }) {
+  return (
+    <Card className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 className="font-display text-lg font-bold text-ink">
+          Допоможіть іншим кандидатам
+        </h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          Анонімний відгук на Прозора робота відображається окремо від відкритих фактів і впливає тільки після модерації.
+        </p>
+      </div>
+      <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="secondary">
+        <PenLine className="h-4 w-4" /> Додати анонімний відгук про цю компанію
+      </Button>
+    </Card>
+  );
+}
+
 function ProEmployerSection({
   title,
   summary,
@@ -575,11 +698,13 @@ function ProEmployerSection({
 function CompanyProAnalysis({
   facts,
   externalRatings,
+  openFacts,
   openFactSummary,
   externalReviewSignalSummary,
 }: {
   facts: PublishedCompanyReviewFacts;
   externalRatings: ExternalRating[];
+  openFacts: CompanyOpenFact[];
   openFactSummary: CompanyOpenFactSummary;
   externalReviewSignalSummary: ExternalReviewSignalSummary;
 }) {
@@ -657,11 +782,23 @@ function CompanyProAnalysis({
         "Це не відгуки Прозора робота. Це узагальнення зовнішніх джерел.",
       ].join(" ")
     : "Недостатньо даних із зовнішніх відгуків. Це не відгуки Прозора робота і не впливає на внутрішній рейтинг.";
+  const realVacancyTitles = uniqueText(getRealVacancyFacts(openFacts).map((fact) => fact.vacancyTitle), 3);
+  const sourceSummaryFacts = getSourceSummaryFacts(openFacts);
+  const sourceSummaryText = uniqueText(
+    sourceSummaryFacts.map((fact) => {
+      const count = extractOpenVacanciesCount(fact.rawExcerpt);
+      return count === null
+        ? `Джерело: сторінка компанії на ${fact.sourceName}.`
+        : `Джерело: сторінка компанії на ${fact.sourceName}; вакансій у відкритому джерелі: ${count}.`;
+    }),
+    3
+  );
   const openFactsSummary = openFactSummary.factsCount > 0
     ? [
         `Джерела: ${openFactSummary.sources.join(" / ")}.`,
         `Останнє оновлення: ${formatDate(openFactSummary.latestCollectedAt)}.`,
-        joinExamples("Вакансії", openFactSummary.vacancyTitles),
+        ...sourceSummaryText,
+        joinExamples("Вакансії", realVacancyTitles),
         joinExamples("Міста", openFactSummary.cities),
         joinExamples("Зарплати", openFactSummary.salaryExamples),
         joinExamples("Умови", openFactSummary.conditions),
@@ -906,6 +1043,7 @@ export default async function CompanyPage({
         <CompanyDataSummary
           facts={reviewFacts}
           externalRatings={externalRatings}
+          openFacts={openFacts}
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
         />
@@ -915,10 +1053,12 @@ export default async function CompanyPage({
           city={mockFallback.city}
           facts={reviewFacts}
           externalRatings={externalRatings}
+          openFacts={openFacts}
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
         />
         <CompanyOpenFactsSection facts={openFacts} />
+        <AddAnonymousReviewCta companySlug={mockFallback.slug} />
         <InterviewChecklistSection />
         <section className="space-y-3">
           <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
@@ -935,6 +1075,7 @@ export default async function CompanyPage({
         <CompanyProAnalysis
           facts={reviewFacts}
           externalRatings={externalRatings}
+          openFacts={openFacts}
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
         />
@@ -993,6 +1134,7 @@ export default async function CompanyPage({
       <CompanyDataSummary
         facts={reviewFacts}
         externalRatings={externalRatings}
+        openFacts={openFacts}
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
       />
@@ -1003,11 +1145,14 @@ export default async function CompanyPage({
         city={sbCompany.city}
         facts={reviewFacts}
         externalRatings={externalRatings}
+        openFacts={openFacts}
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
       />
 
       <CompanyOpenFactsSection facts={openFacts} />
+
+      <AddAnonymousReviewCta companySlug={sbCompany.slug} />
 
       <InterviewChecklistSection />
 
@@ -1029,6 +1174,7 @@ export default async function CompanyPage({
       <CompanyProAnalysis
         facts={reviewFacts}
         externalRatings={externalRatings}
+        openFacts={openFacts}
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
       />
