@@ -46,6 +46,8 @@ export async function GET(req: NextRequest) {
       risk_level: row.risk_level,
       risk_score: row.risk_score,
       confidence_level: row.confidence_level,
+      analysis_mode: typeof row.result_json?.analysis_mode === "string" ? row.result_json.analysis_mode : "fallback",
+      provider: typeof row.result_json?.provider === "string" ? row.result_json.provider : null,
       user_id: row.user_id,
       anonymous_id: row.anonymous_id,
       input_url: row.input_url,

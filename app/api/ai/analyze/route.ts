@@ -107,6 +107,22 @@ async function countUsage(params: {
   return count ?? 0;
 }
 
+async function isAdminEmail(email: string): Promise<boolean> {
+  if (!email) return false;
+  try {
+    const client = getServiceClient();
+    const { data, error } = await client
+      .from("admin_users")
+      .select("email")
+      .eq("email", email.toLowerCase().trim())
+      .maybeSingle();
+    if (error) return false;
+    return Boolean(data);
+  } catch {
+    return false;
+  }
+}
+
 async function loadContext(company: CompanyRow | null): Promise<{
   reviews: AnalyzeEmployerContext["internalReviews"];
   openFacts: AnalyzeEmployerContext["openFacts"];
@@ -251,7 +267,8 @@ export async function GET(req: NextRequest) {
   const existingAnonymousId = req.cookies.get(ANON_COOKIE)?.value ?? null;
   const anonymousId = user ? null : existingAnonymousId ?? randomUUID();
   const ipHashValue = ipHash(req);
-  const limit = user ? 5 : 3;
+  const isAdmin = Boolean(user && (await isAdminEmail(user.email)));
+  const limit = isAdmin ? null : user ? 5 : 3;
   const used = await countUsage({
     userId: user?.id ?? null,
     anonymousId: existingAnonymousId,
@@ -262,7 +279,9 @@ export async function GET(req: NextRequest) {
     usage: {
       limit,
       used,
-      remaining: Math.max(0, limit - used),
+      remaining: isAdmin ? null : Math.max(0, (limit ?? 0) - used),
+      isAdmin,
+      unlimited: isAdmin,
     },
   });
   if (!user && anonymousId && !existingAnonymousId) {
@@ -288,14 +307,15 @@ export async function POST(req: NextRequest) {
   const existingAnonymousId = req.cookies.get(ANON_COOKIE)?.value ?? null;
   const anonymousId = user ? null : existingAnonymousId ?? randomUUID();
   const ipHashValue = ipHash(req);
-  const limit = user ? 5 : 3;
+  const isAdmin = Boolean(user && (await isAdminEmail(user.email)));
+  const limit = isAdmin ? null : user ? 5 : 3;
   const usedBefore = await countUsage({
     userId: user?.id ?? null,
     anonymousId: existingAnonymousId,
     ipHashValue,
   });
 
-  if (usedBefore >= limit) {
+  if (!isAdmin && usedBefore >= (limit ?? 0)) {
     const response = NextResponse.json(
       {
         error: "daily_limit_exceeded",
@@ -412,7 +432,9 @@ export async function POST(req: NextRequest) {
     usage: {
       limit,
       used: usedBefore + 1,
-      remaining: Math.max(0, limit - usedBefore - 1),
+      remaining: isAdmin ? null : Math.max(0, (limit ?? 0) - usedBefore - 1),
+      isAdmin,
+      unlimited: isAdmin,
     },
     fetch: {
       status: fetchStatus,

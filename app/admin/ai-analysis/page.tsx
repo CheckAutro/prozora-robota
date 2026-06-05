@@ -22,6 +22,8 @@ interface AiAdminRow {
   fetch_status: string | null;
   sources_count: number;
   summary: string;
+  analysis_mode: string;
+  provider: string | null;
 }
 
 type AuthState = "loading" | "authed" | "forbidden" | "unauthed";
@@ -162,6 +164,14 @@ export default function AdminAiAnalysisPage() {
                 <span className="rounded-full bg-ink/[0.04] px-3 py-1 text-ink-soft">
                   risk: {row.risk_level ?? "unknown"} {row.risk_score ?? ""}
                 </span>
+                <span className="rounded-full bg-ink/[0.04] px-3 py-1 text-ink-soft">
+                  mode: {row.analysis_mode}
+                </span>
+                {row.provider && (
+                  <span className="rounded-full bg-brand-50 px-3 py-1 text-brand-700">
+                    provider: {row.provider}
+                  </span>
+                )}
                 <span className="rounded-full bg-brand-50 px-3 py-1 text-brand-700">
                   sources: {row.sources_count}
                 </span>

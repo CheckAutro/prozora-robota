@@ -24,6 +24,8 @@ interface AiAnalysis {
   risk_score: number | null;
   confidence_level: ConfidenceLevel;
   data_level: "insufficient" | "partial" | "enough";
+  analysis_mode: "ai" | "fallback";
+  provider?: string | null;
   known_facts: string[];
   external_findings: string[];
   risks: string[];
@@ -55,9 +57,11 @@ interface AiSource {
 interface AiResponse {
   analysis: AiAnalysis;
   usage: {
-    limit: number;
+    limit: number | null;
     used: number;
-    remaining: number;
+    remaining: number | null;
+    isAdmin?: boolean;
+    unlimited?: boolean;
   };
   fetch: {
     status: string;
@@ -74,7 +78,7 @@ type Stage =
 
 type UsageState =
   | { type: "loading" }
-  | { type: "ready"; limit: number; used: number; remaining: number }
+  | { type: "ready"; limit: number | null; used: number; remaining: number | null; isAdmin?: boolean; unlimited?: boolean }
   | { type: "unavailable" };
 
 const RISK_META: Record<RiskLevel, { label: string; className: string }> = {
@@ -123,7 +127,8 @@ function AiResultView({ data }: { data: AiResponse }) {
   const canShowScore =
     data.analysis.risk_level !== "unknown" &&
     data.analysis.data_level !== "insufficient" &&
-    typeof data.analysis.risk_score === "number";
+    typeof data.analysis.risk_score === "number" &&
+    data.analysis.risk_score > 0;
   const sourceSignalCount = data.sources.filter((source) =>
     source.source_name !== "Прозора робота" &&
     ["review", "rating", "discussion"].includes(source.signal_type)
@@ -157,6 +162,11 @@ function AiResultView({ data }: { data: AiResponse }) {
           <h3 className="mt-3 font-display text-xl font-bold text-ink">
             {data.analysis.summary}
           </h3>
+          <p className="mt-2 text-xs text-ink-muted">
+            {data.analysis.analysis_mode === "ai"
+              ? "AI-аналіз виконано на основі доступних даних сайту та тексту вакансії."
+              : "Аналіз виконано на основі правил і доступних даних сайту."}
+          </p>
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", meta.className)}>
@@ -380,8 +390,11 @@ export function AiVacancyAnalysisSection({
           </Button>
           <div className="space-y-1 text-xs text-ink-muted">
             <p>
-              Залишилось перевірок сьогодні:{" "}
-              {usage.type === "ready" ? usage.remaining : usage.type === "loading" ? "…" : "невідомо"}
+              {usage.type === "ready" && (usage.isAdmin || usage.unlimited)
+                ? "Адмін: перевірки без ліміту"
+                : `Залишилось перевірок сьогодні: ${
+                    usage.type === "ready" ? usage.remaining : usage.type === "loading" ? "…" : "невідомо"
+                  }`}
             </p>
             <p>Якщо сайт вакансії не віддасть сторінку, вставте текст вручну.</p>
           </div>
@@ -456,7 +469,9 @@ export function AiCompanyAnalysisPanel({
         {stage.type === "result" && (
           <p className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Залишилось перевірок сьогодні: {stage.data.usage.remaining}
+            {stage.data.usage.isAdmin || stage.data.usage.unlimited
+              ? "Адмін: перевірки без ліміту"
+              : `Залишилось перевірок сьогодні: ${stage.data.usage.remaining}`}
           </p>
         )}
         {stage.type === "error" && (

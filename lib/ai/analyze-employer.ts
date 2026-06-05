@@ -11,6 +11,10 @@ import type {
   AiDataLevel,
   ExternalSourceCandidate,
 } from "./types";
+import {
+  getEmployerAiProviderName,
+  runEmployerAiAnalysisPrompt,
+} from "./ai-provider";
 
 export interface AiReviewContext {
   id: string;
@@ -174,6 +178,133 @@ function riskFromScore(score: number, level: AiDataLevel, context: AnalyzeEmploy
   return "low";
 }
 
+function normalizeContextSafety(
+  result: AiAnalysisResult,
+  context: AnalyzeEmployerContext
+): AiAnalysisResult {
+  const openFactsOnlyCompany = isCompanyOpenFactsOnlyContext(context);
+  const noEmployerEvidence = !hasEmployerExperienceContext(context);
+  const concreteVacancyText = hasVacancyText(context) && context.vacancyText.trim().length > 0;
+  const hasConcreteVacancyInfo = /грн|₴|зарплат|ставк|бонус|kpi|офіційне|оформлен|договір|графік|5\/2|2\/2|позмін|місто|компані/i.test(
+    `${context.vacancyText} ${context.fetchedText}`
+  );
+  const confidenceCap: AiConfidenceLevel = openFactsOnlyCompany
+    ? (realOpenFacts(context).length >= 2 ? "medium" : "low")
+    : noEmployerEvidence && !concreteVacancyText
+      ? "low"
+      : result.confidence_level;
+
+  if (openFactsOnlyCompany) {
+    return {
+      ...result,
+      summary:
+        "Є відкриті вакансії та сторінка компанії у відкритому джерелі, але немає достатньо відгуків працівників або підтверджених зовнішніх оцінок. Ризик неможливо оцінити повністю.",
+      risk_level: "unknown",
+      risk_score: null,
+      confidence_level: confidenceCap,
+      data_level: "partial",
+      risks: ["Ризик неможливо оцінити через нестачу даних."],
+      recommendations: unique([
+        "Перевірте конкретну вакансію.",
+        "Попросіть письмово підтвердити зарплату, графік і оформлення.",
+        "Не робіть висновок лише на основі кількості вакансій.",
+        "Залиште анонімний відгук після співбесіди або роботи.",
+      ], 6),
+      analysis_mode: result.analysis_mode,
+      provider: result.provider,
+    };
+  }
+
+  if (noEmployerEvidence && !hasConcreteVacancyInfo) {
+    return {
+      ...result,
+      risk_level: "unknown",
+      risk_score: null,
+      confidence_level: "low",
+      data_level: result.data_level === "enough" ? "partial" : result.data_level,
+      risks: result.risks.length > 0 ? result.risks : ["Ризик неможливо оцінити через нестачу даних."],
+      recommendations: unique([
+        "Перевірте конкретну вакансію.",
+        "Попросіть письмово підтвердити зарплату, графік і оформлення.",
+        "Не робіть висновок лише на основі кількості вакансій.",
+        "Залиште анонімний відгук після співбесіди або роботи.",
+      ], 6),
+      analysis_mode: result.analysis_mode,
+      provider: result.provider,
+    };
+  }
+
+  if (noEmployerEvidence && result.risk_level === "low") {
+    return {
+      ...result,
+      risk_level: "unknown",
+      risk_score: null,
+      confidence_level: confidenceCap === "high" ? "medium" : confidenceCap,
+      data_level: result.data_level === "enough" ? "partial" : result.data_level,
+      recommendations: unique([
+        "Перевірте конкретну вакансію.",
+        "Попросіть письмово підтвердити зарплату, графік і оформлення.",
+        "Не робіть висновок лише на основі кількості вакансій.",
+        "Залиште анонімний відгук після співбесіди або роботи.",
+      ], 6),
+      analysis_mode: result.analysis_mode,
+      provider: result.provider,
+    };
+  }
+
+  return {
+    ...result,
+    confidence_level:
+      result.confidence_level === "high" && noEmployerEvidence ? "medium" : confidenceCap ?? result.confidence_level,
+  };
+}
+
+function buildSystemPrompt(): string {
+  return [
+    "You analyze Ukrainian employer and vacancy context.",
+    "Return only strict JSON, no markdown, no extra prose.",
+    "Never invent reviews, salaries, ratings, reputation, or facts.",
+    "If data is insufficient, say insufficient data.",
+    "AI analysis is not a review and does not affect ratings.",
+    "Separate: 1) internal reviews, 2) open facts, 3) external ratings, 4) external signals, 5) vacancy text, 6) AI conclusion.",
+  ].join(" ");
+}
+
+function buildUserPrompt(context: AnalyzeEmployerContext): string {
+  return JSON.stringify({
+    schema: {
+      summary: "string",
+      risk_level: "low|medium|high|unknown",
+      risk_score: "0..100 integer or null when data is insufficient, risk/completeness only, not employer rating",
+      confidence_level: "low|medium|high",
+      data_level: "insufficient|partial|enough",
+      known_facts: "string[]",
+      external_findings: "string[]",
+      risks: "string[]",
+      missing_data: "string[]",
+      interview_questions: "string[]",
+      recommendations: "string[]",
+      source_breakdown: {
+        internal_reviews: "number",
+        open_facts: "number",
+        external_ratings: "number",
+        external_signals: "number",
+        found_external_sources: "number",
+        vacancy_text: "boolean",
+      },
+      disclaimer: "string",
+    },
+    rules: [
+      "Do not copy external reviews as if they are ours.",
+      "Do not invent reviews, salaries, ratings, or reputation.",
+      "Do not claim official employment, salaries, delays, booking, or reputation unless present in context.",
+      "If data is insufficient, return risk_level unknown, confidence_level low, and risk_score null.",
+      "Recommendations must be practical: what to clarify, what to ask in writing, what to verify.",
+    ],
+    context,
+  });
+}
+
 function buildFallbackAnalysis(context: AnalyzeEmployerContext): AiAnalysisResult {
   const text = [
     context.vacancyText,
@@ -241,6 +372,8 @@ function buildFallbackAnalysis(context: AnalyzeEmployerContext): AiAnalysisResul
     risk_score: shouldUseUnknownRisk ? null : riskScore,
     confidence_level: confidenceFromContext(context, level),
     data_level: level,
+    analysis_mode: "fallback",
+    provider: null,
     known_facts: knownFacts.length ? knownFacts : ["Недостатньо перевірених фактів."],
     external_findings: externalFindings.length ? externalFindings : ["Підтверджених зовнішніх джерел у контексті немає."],
     risks: risks.length
@@ -314,6 +447,8 @@ function coerceResult(value: unknown, fallback: AiAnalysisResult): AiAnalysisRes
     risk_score: normalizedRiskLevel === "unknown" || normalizedLevel === "insufficient" ? null : score,
     confidence_level: normalizedConfidence,
     data_level: normalizedLevel,
+    analysis_mode: record.analysis_mode === "ai" ? "ai" : "fallback",
+    provider: typeof record.provider === "string" && record.provider.trim() ? record.provider.trim() : null,
     known_facts: coerceStringArray(record.known_facts, fallback.known_facts),
     external_findings: coerceStringArray(record.external_findings, fallback.external_findings),
     risks: coerceStringArray(record.risks, fallback.risks),
@@ -325,79 +460,37 @@ function coerceResult(value: unknown, fallback: AiAnalysisResult): AiAnalysisRes
   };
 }
 
-async function callAi(context: AnalyzeEmployerContext, fallback: AiAnalysisResult): Promise<AiAnalysisResult | null> {
-  const apiKey = process.env.AI_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
-  if (!apiKey) return null;
-
-  const apiUrl = process.env.AI_API_URL ?? (process.env.OPENAI_API_KEY ? "https://api.openai.com/v1/chat/completions" : "");
-  if (!apiUrl) return null;
-
-  const model = process.env.AI_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
-  try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "You analyze Ukrainian employer/vacancy context. Return only strict JSON matching the requested schema. Never invent reviews, ratings, salaries, reputation, or facts. If data is missing, say insufficient data. AI analysis is not a review and does not affect ratings.",
-          },
-          {
-            role: "user",
-            content: JSON.stringify({
-              schema: {
-                summary: "string",
-                risk_level: "low|medium|high|unknown",
-                risk_score: "0..100 integer or null when data is insufficient, risk/completeness only, not employer rating",
-                confidence_level: "low|medium|high",
-                data_level: "insufficient|partial|enough",
-                known_facts: "string[]",
-                external_findings: "string[]",
-                risks: "string[]",
-                missing_data: "string[]",
-                interview_questions: "string[]",
-                recommendations: "string[]",
-                disclaimer: "string",
-              },
-              rules: [
-                "Do not copy external reviews as if they are ours.",
-                "Separate internal reviews, open facts, external ratings, external signals, found sources, and vacancy text.",
-                "Do not claim official employment, salaries, delays, booking, or reputation unless present in context.",
-                "If data is insufficient, return risk_level unknown, confidence_level low, and risk_score null.",
-              ],
-              context,
-            }),
-          },
-        ],
-      }),
-    });
-    if (!response.ok) return null;
-    const payload = await response.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = payload.choices?.[0]?.message?.content;
-    if (!content) return null;
-    return coerceResult(JSON.parse(content), fallback);
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export async function analyzeEmployer(context: AnalyzeEmployerContext): Promise<AiAnalysisResult> {
   const fallback = buildFallbackAnalysis(context);
-  const aiResult = await callAi(context, fallback);
-  return aiResult ?? fallback;
+  const providerName = getEmployerAiProviderName();
+  if (!providerName) return fallback;
+
+  const raw = await runEmployerAiAnalysisPrompt({
+    systemPrompt: buildSystemPrompt(),
+    userPrompt: buildUserPrompt(context),
+    schemaName: "employer_analysis_v1",
+  });
+
+  if (!raw || typeof raw !== "object") {
+    return fallback;
+  }
+
+  const coerced = coerceResult(raw, fallback);
+  const normalized = normalizeContextSafety(
+    {
+      ...coerced,
+      analysis_mode: "ai",
+      provider: providerName,
+    },
+    context
+  );
+
+  if (normalized.risk_level === "unknown" && normalized.risk_score !== null) {
+    return {
+      ...normalized,
+      risk_score: null,
+    };
+  }
+
+  return normalized;
 }

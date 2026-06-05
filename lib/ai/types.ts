@@ -37,6 +37,8 @@ export interface AiAnalysisResult {
   risk_score: number | null;
   confidence_level: AiConfidenceLevel;
   data_level: AiDataLevel;
+  analysis_mode: "ai" | "fallback";
+  provider: string | null;
   known_facts: string[];
   external_findings: string[];
   risks: string[];
