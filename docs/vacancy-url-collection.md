@@ -171,6 +171,111 @@ snippet-ів нижче залежно від сайту.
 
 ---
 
+#### Snippet для Work.ua facts CSV
+
+Цей варіант потрібен, коли server-side fetch Work.ua блокується. Він збирає
+готові факти з видимих карток вакансій у форматі `data/vacancy-facts-import.csv`.
+Snippet не робить fetch і не відкриває сторінки вакансій.
+
+```js
+(function () {
+  const SOURCE = 'Work.ua';
+  const companyName = prompt('company_name для CSV:', '')?.trim() || '';
+  const companySlug = prompt('company_slug (можна залишити порожнім):', '')?.trim() || '';
+  const note = prompt('note / batch label:', companyName ? `${companyName} batch 1` : 'Work.ua batch 1')?.trim() || '';
+  const pattern = /work\.ua\/jobs\/(\d+)\/?/;
+
+  const escapeCsv = (value) => {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const seen = new Set();
+  const rows = [];
+
+  document.querySelectorAll('a[href]').forEach((a) => {
+    const href = a.href || '';
+    const match = pattern.exec(href);
+    if (!match) return;
+
+    const sourceUrl = `https://www.work.ua/jobs/${match[1]}/`;
+    if (seen.has(sourceUrl)) return;
+    seen.add(sourceUrl);
+
+    const card = a.closest('[data-id], article, li, .card, [class*="job"]') || a.parentElement || a;
+    const cardText = clean(card.textContent).slice(0, 500);
+    const title = clean(
+      a.textContent ||
+      card.querySelector('h2, h3, [class*="title"]')?.textContent ||
+      ''
+    ).slice(0, 120);
+
+    const salaryMatch = cardText.match(/(?:від\s*)?\d[\d\s\u00a0\u202f]*(?:[–—-]\s*\d[\d\s\u00a0\u202f]*)?\s*(?:грн|₴|uah)(?:\s*[+]\s*\d[\d\s\u00a0\u202f]*\s*\S*)?/i);
+    const salaryText = clean(salaryMatch?.[0] || '');
+    const cityMatch = cardText.match(/\b(Київ|Львів|Одеса|Дніпро|Харків|Запоріжжя|Вінниця|Полтава|Черкаси|Чернігів|Житомир|Рівне|Луцьк|Тернопіль|Івано-Франківськ|Ужгород|Хмельницький|Чернівці|Миколаїв|Херсон|Суми|Кропивницький)\b/i);
+    const city = clean(cityMatch?.[0] || '');
+
+    if (!title) return;
+
+    rows.push({
+      source_url: sourceUrl,
+      source_name: SOURCE,
+      company_name: companyName,
+      company_slug: companySlug,
+      vacancy_title: title,
+      city,
+      salary_text: salaryText,
+      salary_min: '',
+      salary_max: '',
+      raw_excerpt: cardText,
+      note,
+    });
+  });
+
+  if (!rows.length) {
+    console.warn('Вакансій не знайдено. Прокрутіть сторінку та спробуйте ще раз.');
+    return;
+  }
+
+  const columns = [
+    'source_url',
+    'source_name',
+    'company_name',
+    'company_slug',
+    'vacancy_title',
+    'city',
+    'salary_text',
+    'salary_min',
+    'salary_max',
+    'raw_excerpt',
+    'note',
+  ];
+  const csv = [
+    columns.join(','),
+    ...rows.map((row) => columns.map((column) => escapeCsv(row[column])).join(',')),
+  ].join('\n');
+
+  console.group(`✅ Work.ua facts — знайдено ${rows.length} вакансій`);
+  console.log(csv);
+  console.groupEnd();
+
+  navigator.clipboard?.writeText(csv).then(
+    () => console.info('📋 Facts CSV скопійовано в буфер обміну'),
+    () => console.info('Скопіюйте CSV вручну з виводу вище')
+  );
+})();
+```
+
+Для такого CSV використовуйте окремий importer:
+
+```bash
+npm run import:vacancy-facts -- --file=data/vacancy-facts-import.csv --dry-run
+npm run import:vacancy-facts -- --file=data/vacancy-facts-import.csv
+```
+
+---
+
 ### 3. Збережіть результат у data/vacancy-urls-import.csv
 
 Скопіюйте вивід **=== CSV ===** з консолі та збережіть у файл:

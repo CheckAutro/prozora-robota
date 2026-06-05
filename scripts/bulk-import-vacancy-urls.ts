@@ -65,6 +65,13 @@ interface ImportError {
   reason: string;
 }
 
+interface ResolvedCompany {
+  matchedCompany: MatchableCompany | null;
+  finalCompanyName: string | null;
+  companySlugForFact: string | null;
+  matchReason: string;
+}
+
 const stats: ImportStats = {
   totalUrls: 0,
   processedUrls: 0,
@@ -156,6 +163,50 @@ function parseCsv(content: string): Record<string, string>[] {
     });
 }
 
+function cleanOptional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+function isValidSlug(value: string | undefined): boolean {
+  return Boolean(value && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value));
+}
+
+function looksLikeSalaryText(value: string | undefined): boolean {
+  const text = value?.trim();
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  if (/грн|₴|uah|&thinsp;|&#8239;|&#x202f;|&nbsp;/.test(lower)) return true;
+  if (/\d[\d\s\u00a0\u202f.,]*\s*[–—-]\s*\d[\d\s\u00a0\u202f.,]*/.test(text)) return true;
+
+  const compact = text.replace(/[\s\u00a0\u202f.,–—+\-]/g, "");
+  const mostlySalaryChars = text.replace(/[0-9\s\u00a0\u202f.,–—+\-]/g, "").length <= Math.max(1, text.length * 0.2);
+  return /\d/.test(compact) && mostlySalaryChars;
+}
+
+function normalizeInput(row: VacancyUrlInput): VacancyUrlInput {
+  let companySlug = cleanOptional(row.company_slug);
+  let companyName = cleanOptional(row.company_name);
+  const note = cleanOptional(row.note);
+
+  if (companySlug && !isValidSlug(companySlug)) {
+    if (!companyName) companyName = companySlug;
+    companySlug = undefined;
+  }
+
+  if (!companyName && note && !looksLikeSalaryText(note)) {
+    companyName = note;
+  }
+
+  return {
+    url: row.url.trim(),
+    company_slug: companySlug,
+    company_name: companyName,
+    source_name: cleanOptional(row.source_name),
+    note,
+  };
+}
+
 function loadInputs(file: string, limit: number | null): VacancyUrlInput[] {
   if (!existsSync(file)) throw new Error("Input file not found: " + file);
   const content = readFileSync(file, "utf8");
@@ -174,7 +225,9 @@ function loadInputs(file: string, limit: number | null): VacancyUrlInput[] {
         .filter((line) => line && !line.startsWith("#"))
         .map((url) => ({ url }));
 
-  return (limit && limit > 0 ? rows.slice(0, limit) : rows).filter((row) => row.url.trim());
+  return (limit && limit > 0 ? rows.slice(0, limit) : rows)
+    .filter((row) => row.url.trim())
+    .map((row) => normalizeInput(row));
 }
 
 function sourceMatchesFilter(inputType: string, source: Args["source"]): boolean {
@@ -215,39 +268,56 @@ function findBySlug(companies: MatchableCompany[], slug: string | undefined): Ma
   return companies.find((company) => company.slug === slug.trim()) ?? null;
 }
 
-function chooseCompany(
+function usableParsedCompanyName(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || looksLikeSalaryText(trimmed)) return null;
+  return trimmed;
+}
+
+function resolveCompany(
   input: VacancyUrlInput,
   parsed: ParsedVacancy,
   companies: MatchableCompany[]
-): { company: MatchableCompany | null; reason: string; weakReason?: string } {
-  const hinted = findBySlug(companies, input.company_slug);
-  if (input.company_slug && !hinted) {
-    return { company: null, reason: "missing-hinted-company", weakReason: "company_slug not found: " + input.company_slug };
-  }
-
-  const parsedName = parsed.companyName ?? input.company_name ?? null;
-  const parsedMatch = findBestCompanyMatch(parsedName, companies);
+): ResolvedCompany {
+  const csvName = input.company_name?.trim() || null;
+  const hinted = isValidSlug(input.company_slug) ? findBySlug(companies, input.company_slug) : null;
+  const parsedName = usableParsedCompanyName(parsed.companyName);
 
   if (hinted) {
-    const parsedSlug = parsedMatch.company?.slug;
-    if (parsed.companyName && parsedSlug && isConfidentCompanyMatch(parsedMatch) && parsedSlug !== hinted.slug) {
-      return {
-        company: null,
-        reason: "hint-conflicts-with-parsed-company",
-        weakReason: "company_slug hint conflicts with parsed company " + parsedSlug,
-      };
-    }
-    return { company: hinted, reason: "csv-company-slug" };
+    const finalCompanyName = csvName ?? hinted.name;
+    return {
+      matchedCompany: hinted,
+      finalCompanyName,
+      companySlugForFact: hinted.slug,
+      matchReason: "csv-company-slug",
+    };
   }
 
-  if (isConfidentCompanyMatch(parsedMatch) && parsedMatch.company) {
-    return { company: parsedMatch.company, reason: parsedMatch.reason };
+  const finalCompanyName = csvName ?? parsedName ?? (isValidSlug(input.company_slug) ? input.company_slug ?? null : null);
+  if (!finalCompanyName) {
+    return {
+      matchedCompany: null,
+      finalCompanyName: null,
+      companySlugForFact: null,
+      matchReason: "no-final-company-name",
+    };
+  }
+
+  const match = findBestCompanyMatch(finalCompanyName, companies);
+  if (isConfidentCompanyMatch(match) && match.company) {
+    return {
+      matchedCompany: match.company,
+      finalCompanyName,
+      companySlugForFact: match.company.slug,
+      matchReason: match.reason,
+    };
   }
 
   return {
-    company: null,
-    reason: parsedMatch.reason,
-    weakReason: parsedName ? "no confident company match for " + parsedName : "company name was not parsed",
+    matchedCompany: null,
+    finalCompanyName,
+    companySlugForFact: generateCompanySlug(finalCompanyName),
+    matchReason: match.reason,
   };
 }
 
@@ -255,23 +325,23 @@ async function queueDiscoveredCompany(
   parsed: ParsedVacancy,
   input: VacancyUrlInput,
   companies: MatchableCompany[],
-  args: Args
+  args: Args,
+  finalCompanyName: string
 ): Promise<void> {
-  const discoveredName = parsed.companyName ?? input.company_name?.trim() ?? "";
-  if (!discoveredName || !parsed.sourceUrl) {
-    stats.skippedWeakMatch += 1;
+  if (!parsed.sourceUrl) {
+    errors.push({ url: input.url, reason: "source URL missing for company discovery queue" });
     return;
   }
 
-  const match = findBestCompanyMatch(discoveredName, companies);
+  const match = findBestCompanyMatch(finalCompanyName, companies);
   if (args.dryRun) {
     stats.wouldQueueNewCompanies += 1;
     return;
   }
 
   const queued = await upsertCompanyDiscoveryQueue({
-    discovered_name: discoveredName,
-    suggested_slug: generateCompanySlug(discoveredName),
+    discovered_name: finalCompanyName,
+    suggested_slug: generateCompanySlug(finalCompanyName),
     source_name: parsed.source,
     source_url: parsed.sourceUrl,
     city: parsed.city,
@@ -316,16 +386,20 @@ async function queueDiscoveredCompany(
 
 async function saveOpenFact(
   client: SupabaseClient,
-  company: MatchableCompany,
+  companySlug: string,
+  companyName: string,
   parsed: ParsedVacancy,
   args: Args
 ): Promise<void> {
   if (!parsed.sourceUrl || !hasMinimumFacts(parsed)) {
-    stats.skippedWeakMatch += 1;
+    errors.push({
+      url: parsed.sourceUrl ?? "(missing source URL)",
+      reason: "parser did not return mandatory vacancy data",
+    });
     return;
   }
 
-  const existed = await sourceUrlExists(client, company.slug, parsed.sourceUrl);
+  const existed = await sourceUrlExists(client, companySlug, parsed.sourceUrl);
   if (args.dryRun) {
     if (existed) stats.wouldUpdate += 1;
     else {
@@ -336,8 +410,8 @@ async function saveOpenFact(
   }
 
   const result = await upsertCompanyOpenFactFromVacancy({
-    company_slug: company.slug,
-    company_name: company.name,
+    company_slug: companySlug,
+    company_name: companyName,
     source_name: parsed.source,
     source_url: parsed.sourceUrl,
     vacancy_title: parsed.title,
@@ -392,6 +466,7 @@ async function processInput(
   const detected = detectVacancyInput(url);
   if ((detected.inputType !== "work.ua URL" && detected.inputType !== "robota.ua URL") || !sourceMatchesFilter(detected.inputType, args.source)) {
     stats.skippedUnsupported += 1;
+    errors.push({ url, reason: "unsupported URL" });
     return;
   }
   stats.validUrls += 1;
@@ -404,14 +479,17 @@ async function processInput(
   }
 
   const parsed = parsedResult.parseResult.parsed;
-  const selected = chooseCompany(input, parsed, companies);
-  if (!selected.company) {
-    if (selected.weakReason) errors.push({ url, reason: selected.weakReason });
-    await queueDiscoveredCompany(parsed, input, companies, args);
+  const resolved = resolveCompany(input, parsed, companies);
+  if (!resolved.finalCompanyName || !resolved.companySlugForFact) {
+    stats.skippedWeakMatch += 1;
+    errors.push({ url, reason: "no final company name" });
     return;
   }
 
-  await saveOpenFact(client, selected.company, parsed, args);
+  await saveOpenFact(client, resolved.companySlugForFact, resolved.finalCompanyName, parsed, args);
+  if (!resolved.matchedCompany) {
+    await queueDiscoveredCompany(parsed, input, companies, args, resolved.finalCompanyName);
+  }
 }
 
 function printReport(args: Args) {

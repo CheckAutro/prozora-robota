@@ -25,6 +25,10 @@
     "export:company-discovery": "npx tsx scripts/export-company-discovery-template.ts",
     "import:company-discovery": "npx tsx scripts/import-company-discovery.ts",
     "check:company-discovery": "npx tsx scripts/check-company-discovery.ts",
+    "collect:vacancy-urls": "npx tsx scripts/collect-vacancy-urls.ts",
+    "generate:company-description-drafts": "npx tsx scripts/generate-company-description-drafts.ts",
+    "import:company-source-facts": "npx tsx scripts/import-company-source-facts.ts",
+    "import:vacancy-facts": "npx tsx scripts/import-vacancy-facts-csv.ts",
     "import:vacancy-urls": "npx tsx scripts/bulk-import-vacancy-urls.ts"
   },
   "dependencies": {
