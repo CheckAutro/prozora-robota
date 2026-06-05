@@ -334,19 +334,15 @@ function CompanyShortAnalysis({
     joinExamples("Умови", openFactSummary.conditions),
   ].filter(Boolean) as string[];
   const attention = [
-    facts.reviewCount === 0
-      ? "Мало відгуків на Прозора робота."
-      : `Є ${facts.reviewCount} опублікованих відгуків на Прозора робота.`,
-    externalRatings.length === 0
-      ? "Підтверджених зовнішніх оцінок поки немає."
-      : `Є ${externalRatings.length} підтверджених зовнішніх джерел.`,
-    externalReviewSignalSummary.signalCount === 0
-      ? "Підтверджених узагальнень зовнішніх відгуків поки немає."
+    facts.reviewCount === 0 && externalRatings.length === 0
+      ? "Відгуків працівників і підтверджених зовнішніх оцінок поки немає."
       : null,
+    facts.reviewCount > 0 ? `Є ${facts.reviewCount} опублікованих відгуків на Прозора робота.` : null,
+    externalRatings.length > 0 ? `Є ${externalRatings.length} підтверджених зовнішніх джерел.` : null,
     externalReviewSignalSummary.negativeCount + externalReviewSignalSummary.mixedCount > 0
       ? "У відкритих джерелах є змішані або негативні згадки. Їх потрібно перевірити на співбесіді."
       : null,
-    openFactSummary.factsCount > 0 ? "Це дані з вакансій, а не досвід працівників." : null,
+    openFactSummary.factsCount > 0 ? "Відкриті факти не є досвідом працівників." : null,
     openFactSummary.salaryExamples.length > 0
       ? "Є приклади зарплат з відкритих вакансій, але їх потрібно підтверджувати з роботодавцем."
       : null,
@@ -354,17 +350,22 @@ function CompanyShortAnalysis({
       ? `Внутрішня оцінка за published reviews: ${formatAverage(facts.averageInternalRating)}.`
       : null,
   ].filter(Boolean) as string[];
-  const missing = [
-    facts.reviewCount === 0 ? "Недостатньо анонімних відгуків." : null,
-    externalRatings.length === 0 ? "Немає підтверджених зовнішніх оцінок." : null,
-    externalReviewSignalSummary.signalCount === 0 ? "Немає підтверджених узагальнень зовнішніх відгуків." : null,
-    !facts.hasSalaryData && openFactSummary.salaryExamples.length === 0 ? "Недостатньо даних про зарплату." : null,
+  const missingLabels = [
+    facts.reviewCount === 0 ? "анонімні відгуки" : null,
+    externalRatings.length === 0 ? "зовнішні оцінки" : null,
+    externalReviewSignalSummary.signalCount === 0 ? "зовнішні сигнали" : null,
+    !facts.hasSalaryData && openFactSummary.salaryExamples.length === 0 ? "зарплата" : null,
     !facts.hasEmploymentData && !openFactSummary.hasOfficialEmploymentMention && openFactSummary.employmentTypes.length === 0
-      ? "Недостатньо даних про оформлення."
+      ? "оформлення"
       : null,
-    !facts.hasScheduleData && openFactSummary.schedules.length === 0 ? "Недостатньо даних про графік." : null,
-    !facts.hasBookingData && !openFactSummary.hasBookingMention ? "Даних про бронювання або відстрочку." : null,
+    !facts.hasScheduleData && openFactSummary.schedules.length === 0 ? "графік" : null,
+    !facts.hasBookingData && !openFactSummary.hasBookingMention ? "бронювання" : null,
   ].filter(Boolean) as string[];
+  const missing = [
+    missingLabels.length > 0
+      ? `Бракує даних: ${missingLabels.join(", ")}.`
+      : `За наявними даними базові блоки для ${companyName} частково заповнені.`,
+  ];
   const factualSummary = [
     `Джерела: ${openFactSummary.sources.length ? openFactSummary.sources.join(" / ") : "поки немає"}.`,
     `Відкритих фактів: ${openFactSummary.factsCount}.`,
@@ -408,10 +409,49 @@ function CompanyShortAnalysis({
         </div>
         <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
           <h3 className="text-sm font-semibold text-ink">Якої інформації бракує</h3>
-          <CompanyAnalysisList
-            items={missing.length ? missing : [`За наявними даними базові блоки для ${companyName} частково заповнені.`]}
-          />
+          <CompanyAnalysisList items={missing} />
         </div>
+      </div>
+    </Card>
+  );
+}
+
+function PreliminaryConclusion({
+  companySlug,
+  facts,
+  openFactSummary,
+}: {
+  companySlug: string;
+  facts: PublishedCompanyReviewFacts;
+  openFactSummary: CompanyOpenFactSummary;
+}) {
+  const conclusion = facts.reviewCount > 0
+    ? "Є відгуки працівників і відкриті дані."
+    : openFactSummary.factsCount > 0
+      ? "Є відкриті дані про вакансії, але немає достатньо відгуків працівників. Перевірка неповна."
+      : "Даних поки недостатньо.";
+
+  return (
+    <Card className="space-y-4 border-brand-100 bg-brand-50/40 p-5">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
+          Попередній висновок
+        </p>
+        <p className="mt-2 text-base font-semibold leading-relaxed text-ink">
+          {conclusion}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button href="/check-vacancy" size="sm">
+          Перевірити конкретну вакансію
+        </Button>
+        <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="outline" size="sm">
+          Додати анонімний відгук
+        </Button>
+        <Button href="#interview-checklist" variant="ghost" size="sm">
+          Уточнити умови письмово
+        </Button>
       </div>
     </Card>
   );
@@ -553,8 +593,13 @@ function CompanyOpenFactsSection({
                     </div>
 
                     {count !== null && (
-                      <div className="mt-3 inline-flex rounded-xl border border-brand-200 bg-white px-3 py-2 text-sm font-semibold text-brand-700">
-                        Вакансій у відкритому джерелі: {count}
+                      <div className="mt-3 space-y-1.5">
+                        <div className="inline-flex rounded-xl border border-brand-200 bg-white px-3 py-2 text-sm font-semibold text-brand-700">
+                          Вакансій у відкритому джерелі: {count}
+                        </div>
+                        <p className="text-xs text-ink-muted">
+                          Це кількість вакансій у відкритому джерелі, а не кількість відгуків.
+                        </p>
                       </div>
                     )}
 
@@ -631,7 +676,8 @@ function InterviewChecklistSection() {
   ];
 
   return (
-    <Card className="space-y-4 p-6">
+    <section id="interview-checklist">
+      <Card className="space-y-4 p-6">
       <div>
         <h2 className="font-display text-lg font-bold text-ink">
           Що уточнити перед співбесідою
@@ -647,7 +693,8 @@ function InterviewChecklistSection() {
           </p>
         ))}
       </div>
-    </Card>
+      </Card>
+    </section>
   );
 }
 
@@ -1057,6 +1104,11 @@ export default async function CompanyPage({
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
         />
+        <PreliminaryConclusion
+          companySlug={mockFallback.slug}
+          facts={reviewFacts}
+          openFactSummary={openFactSummary}
+        />
         <CompanyOpenFactsSection facts={openFacts} />
         <AddAnonymousReviewCta companySlug={mockFallback.slug} />
         <InterviewChecklistSection />
@@ -1148,6 +1200,12 @@ export default async function CompanyPage({
         openFacts={openFacts}
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
+      />
+
+      <PreliminaryConclusion
+        companySlug={sbCompany.slug}
+        facts={reviewFacts}
+        openFactSummary={openFactSummary}
       />
 
       <CompanyOpenFactsSection facts={openFacts} />
