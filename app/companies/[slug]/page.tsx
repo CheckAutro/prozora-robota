@@ -4,8 +4,11 @@ import {
   MapPin,
   Briefcase,
   PenLine,
-  Lock,
   MessageSquareText,
+  CheckCircle2,
+  ClipboardList,
+  FileText,
+  Star,
 } from "lucide-react";
 
 import { COMPANIES } from "@/lib/mock-data";
@@ -29,6 +32,7 @@ import {
 } from "@/lib/external-review-signals-service";
 import { getServerClient } from "@/lib/supabase/server";
 import { normalizeIndustry } from "@/lib/industry";
+import { cn } from "@/lib/cn";
 import type { CompanyOpenFact, ExternalRating, ExternalReviewSignal } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -117,8 +121,85 @@ function getCompanyDataLevel(
   return "Є часткові дані";
 }
 
+function dataLevelLabel(level: ReturnType<typeof getCompanyDataLevel>): string {
+  if (level === "Поки недостатньо даних") return "Недостатньо даних";
+  if (level === "Є часткові дані") return "Часткові дані";
+  return "Достатньо даних";
+}
+
+function yesNoData(value: boolean): string {
+  return value ? "є дані" : "немає даних";
+}
+
 function externalSignalTopicList(summary: ExternalReviewSignalSummary): string {
   return summary.topics.map((topic) => TOPIC_LABELS[topic].toLowerCase()).slice(0, 4).join(", ");
+}
+
+function CompanyDataSummary({
+  facts,
+  externalRatings,
+  openFactSummary,
+  externalReviewSignalSummary,
+}: {
+  facts: PublishedCompanyReviewFacts;
+  externalRatings: ExternalRating[];
+  openFactSummary: CompanyOpenFactSummary;
+  externalReviewSignalSummary: ExternalReviewSignalSummary;
+}) {
+  const dataLevel = getCompanyDataLevel(
+    facts,
+    externalRatings.length,
+    openFactSummary.factsCount,
+    externalReviewSignalSummary.signalCount
+  );
+  const cards = [
+    {
+      icon: MessageSquareText,
+      label: "Відгуки",
+      value: facts.reviewCount > 0
+        ? `${facts.reviewCount} опублікованих відгуків`
+        : "Відгуків працівників поки немає",
+      tone: facts.reviewCount > 0 ? "text-brand-700 bg-brand-50" : "text-ink-soft bg-ink/[0.03]",
+    },
+    {
+      icon: FileText,
+      label: "Вакансії",
+      value: openFactSummary.factsCount > 0
+        ? "Є дані з відкритих вакансій"
+        : "Даних з відкритих вакансій поки немає",
+      tone: openFactSummary.factsCount > 0 ? "text-brand-700 bg-brand-50" : "text-ink-soft bg-ink/[0.03]",
+    },
+    {
+      icon: Star,
+      label: "Зовнішні оцінки",
+      value: externalRatings.length > 0
+        ? `${externalRatings.length} підтверджених джерел`
+        : "Зовнішні оцінки поки не підтверджені",
+      tone: externalRatings.length > 0 ? "text-brand-700 bg-brand-50" : "text-ink-soft bg-ink/[0.03]",
+    },
+    {
+      icon: ClipboardList,
+      label: "Рівень даних",
+      value: dataLevelLabel(dataLevel),
+      tone: dataLevel === "Поки недостатньо даних" ? "text-amber-700 bg-amber-50" : "text-brand-700 bg-brand-50",
+    },
+  ];
+
+  return (
+    <Card className="grid gap-3 p-4 sm:grid-cols-2">
+      {cards.map(({ icon: Icon, label, value, tone }) => (
+        <div key={label} className="flex items-start gap-3 rounded-xl border border-ink/[0.06] bg-white p-3">
+          <span className={cn("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", tone)}>
+            <Icon className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
+            <p className="mt-0.5 text-sm font-medium text-ink">{value}</p>
+          </div>
+        </div>
+      ))}
+    </Card>
+  );
 }
 
 function CompanyAnalysisList({ items }: { items: string[] }) {
@@ -218,6 +299,15 @@ function CompanyShortAnalysis({
     !facts.hasScheduleData && openFactSummary.schedules.length === 0 ? "Недостатньо даних про графік." : null,
     !facts.hasBookingData && !openFactSummary.hasBookingMention ? "Даних про бронювання або відстрочку." : null,
   ].filter(Boolean) as string[];
+  const factualSummary = [
+    `Джерела: ${openFactSummary.sources.length ? openFactSummary.sources.join(" / ") : "поки немає"}.`,
+    `Відкритих фактів: ${openFactSummary.factsCount}.`,
+    `Останнє оновлення: ${formatDate(openFactSummary.latestCollectedAt)}.`,
+    `Зарплата: ${yesNoData(openFactSummary.salaryExamples.length > 0 || facts.hasSalaryData)}.`,
+    `Місто: ${yesNoData(openFactSummary.cities.length > 0 || Boolean(city))}.`,
+    `Оформлення: ${yesNoData(openFactSummary.hasOfficialEmploymentMention || openFactSummary.employmentTypes.length > 0 || facts.hasEmploymentData)}.`,
+    `Графік: ${yesNoData(openFactSummary.schedules.length > 0 || facts.hasScheduleData)}.`,
+  ];
 
   return (
     <Card className="space-y-5 p-6">
@@ -231,6 +321,15 @@ function CompanyShortAnalysis({
       </div>
 
       <p className="text-sm leading-relaxed text-ink-soft">{conclusion}</p>
+
+      <div className="grid gap-2 rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4 sm:grid-cols-2">
+        {factualSummary.map((item) => (
+          <p key={item} className="flex items-start gap-2 text-xs leading-relaxed text-ink-soft">
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" />
+            {item}
+          </p>
+        ))}
+      </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
@@ -312,47 +411,6 @@ function ExternalReviewSignalsSection({
   );
 }
 
-function CompanyDescriptionSection({
-  facts,
-}: {
-  facts: CompanyOpenFact[];
-}) {
-  const fact = facts.find((item) => item.companyDescription);
-
-  return (
-    <Card className="space-y-3 p-6">
-      <div>
-        <h2 className="font-display text-lg font-bold text-ink">Опис компанії</h2>
-        <p className="mt-1 text-sm text-ink-soft">
-          Опис формується тільки з відкритих джерел або підтверджених даних. Він не є відгуком працівника і не впливає на рейтинг.
-        </p>
-      </div>
-
-      {!fact?.companyDescription ? (
-        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
-          Опис компанії поки не додано.
-        </p>
-      ) : (
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
-          <p className="text-sm leading-relaxed text-ink-soft">{fact.companyDescription}</p>
-          <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-            <span>Джерело: {fact.sourceName}</span>
-            <span>зібрано: {formatDate(fact.collectedAt)}</span>
-            {fact.sourceUrl && (
-              <a href={fact.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-700">
-                Відкрити джерело
-              </a>
-            )}
-          </p>
-          <p className="mt-3 rounded-lg bg-ink/[0.03] px-3 py-2 text-xs text-ink-muted">
-            Опис сформовано на основі відкритих джерел. Це не є відгуком працівника і не впливає на рейтинг.
-          </p>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function TextPills({ label, values }: { label: string; values: string[] }) {
   if (values.length === 0) return null;
   return (
@@ -367,6 +425,18 @@ function TextPills({ label, values }: { label: string; values: string[] }) {
       </div>
     </div>
   );
+}
+
+function isSourceSummaryFact(fact: CompanyOpenFact): boolean {
+  const title = fact.vacancyTitle?.toLowerCase() ?? "";
+  const excerpt = fact.rawExcerpt?.toLowerCase() ?? "";
+  return title.startsWith("сторінка компанії на") || excerpt.includes("компанія має сторінку");
+}
+
+function sourceLinkLabel(sourceName: string): string {
+  if (/work\.ua/i.test(sourceName)) return "Відкрити на Work.ua ↗";
+  if (/robota\.ua/i.test(sourceName)) return "Відкрити на Robota.ua ↗";
+  return `Джерело: ${sourceName} ↗`;
 }
 
 function CompanyOpenFactsSection({
@@ -397,7 +467,9 @@ function CompanyOpenFactsSection({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-ink">
-                    {fact.vacancyTitle ?? "Вакансія без назви"}
+                    {isSourceSummaryFact(fact)
+                      ? `Сторінка компанії у джерелі: ${fact.sourceName}`
+                      : fact.vacancyTitle ?? "Вакансія без назви"}
                   </p>
                   <p className="mt-1 text-xs text-ink-muted">
                     {fact.sourceName} · зібрано: {formatDate(fact.collectedAt)}
@@ -410,21 +482,26 @@ function CompanyOpenFactsSection({
                     rel="noopener noreferrer"
                     className="text-sm font-medium text-brand-700 hover:text-brand-800"
                   >
-                    Джерело
+                    {sourceLinkLabel(fact.sourceName)}
                   </a>
                 )}
               </div>
 
-              <div className="mt-3 grid gap-2 text-sm text-ink-soft sm:grid-cols-2">
-                <span><strong className="text-ink">Місто:</strong> {fact.city ?? "Не вказано"}</span>
-                <span><strong className="text-ink">Зарплата:</strong> {fact.salaryText ?? "Не вказана"}</span>
-                <span><strong className="text-ink">Графік:</strong> {fact.schedule ?? "Не вказано"}</span>
-                <span><strong className="text-ink">Оформлення:</strong> {fact.employmentType ?? "Не вказано"}</span>
-              </div>
+              {!isSourceSummaryFact(fact) && (
+                <>
+                  <div className="mt-3 grid gap-2 text-sm text-ink-soft sm:grid-cols-2">
+                    <span><strong className="text-ink">Місто:</strong> {fact.city ?? "Не вказано"}</span>
+                    <span><strong className="text-ink">Зарплата:</strong> {fact.salaryText ?? "Не вказана"}</span>
+                    <span><strong className="text-ink">Графік:</strong> {fact.schedule ?? "Не вказано"}</span>
+                    <span><strong className="text-ink">Оформлення:</strong> {fact.employmentType ?? "Не вказано"}</span>
+                  </div>
 
-              <TextPills label="Умови" values={fact.conditions} />
-              <TextPills label="Переваги" values={fact.benefits} />
-              <TextPills label="Вимоги" values={fact.requirements} />
+                  <TextPills label="Умови" values={fact.conditions} />
+                  <TextPills label="Переваги" values={fact.benefits} />
+                  <TextPills label="Вимоги" values={fact.requirements} />
+                </>
+              )}
+
               {shortText(fact.rawExcerpt) && (
                 <p className="mt-3 rounded-lg bg-ink/[0.03] px-3 py-2 text-xs leading-relaxed text-ink-muted">
                   {shortText(fact.rawExcerpt)}
@@ -434,6 +511,37 @@ function CompanyOpenFactsSection({
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+function InterviewChecklistSection() {
+  const questions = [
+    "Яка фіксована ставка?",
+    "Як виплачуються бонуси?",
+    "Чи є офіційне оформлення з першого дня?",
+    "Який графік?",
+    "Чи оплачуються понаднормові?",
+    "Чи є бронювання або відстрочка?",
+  ];
+
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h2 className="font-display text-lg font-bold text-ink">
+          Що уточнити перед співбесідою
+        </h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          Безкоштовний чеклист питань. Він не замінює письмове підтвердження умов.
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {questions.map((question) => (
+          <p key={question} className="rounded-xl border border-ink/[0.06] bg-white px-3 py-2 text-sm text-ink-soft">
+            {question}
+          </p>
+        ))}
+      </div>
     </Card>
   );
 }
@@ -580,6 +688,14 @@ function CompanyProAnalysis({
     : lowData
     ? "Недостатньо даних для повної оцінки роботодавця. Перед рішенням варто уточнити оплату, оформлення, графік і перевірити умови письмово."
     : "Висновок потрібно будувати тільки на фактичних published reviews, підтверджених зовнішніх оцінках і підтверджених даних з відкритих вакансій. Перед рішенням все одно варто підтвердити ключові умови письмово.";
+  const proIncludes = [
+    "ризики по зарплаті",
+    "оформлення",
+    "графік",
+    "бронювання / відстрочка",
+    "порівняння з іншими роботодавцями",
+    "список питань для співбесіди",
+  ];
 
   return (
     <Card className="space-y-5 p-6">
@@ -591,12 +707,25 @@ function CompanyProAnalysis({
           <p className="mt-1 text-sm text-ink-soft">
             {lowData
               ? "Недостатньо даних для повної оцінки. Нижче — що потрібно перевірити перед відгуком / співбесідою."
-              : "Це структура майбутнього Pro-звіту на основі доступних даних, без вигаданих фактів."}
+              : "Безкоштовний аналіз на основі відкритих даних, без вигаданих фактів."}
           </p>
         </div>
-        <Button disabled variant="secondary" size="sm">
-          <Lock className="h-4 w-4" /> Отримати розширений аналіз
-        </Button>
+      </div>
+
+      <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
+        <p className="text-sm font-semibold text-ink">Що можна перевірити</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {proIncludes.map((item) => (
+            <p key={item} className="flex items-start gap-2 text-sm text-ink-soft">
+              <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+              {item}
+            </p>
+          ))}
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-ink-muted">
+          Порівняння з іншими роботодавцями буде доступне тільки там, де є достатньо фактичних даних.
+          Розширений аналіз не гарантує безпеку і не вигадує репутацію роботодавця.
+        </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -633,7 +762,8 @@ function CompanyProAnalysis({
       </div>
 
       <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-xs text-ink-muted">
-        Оплата буде додана пізніше. Зараз це структура майбутнього Pro-звіту.
+        Це відкритий безкоштовний аналіз на основі доступних даних. Якщо даних недостатньо,
+        блок показує питання, які варто уточнити перед співбесідою.
       </p>
     </Card>
   );
@@ -773,7 +903,12 @@ export default async function CompanyPage({
             </Button>
           </div>
         </Card>
-        <CompanyDescriptionSection facts={openFacts} />
+        <CompanyDataSummary
+          facts={reviewFacts}
+          externalRatings={externalRatings}
+          openFactSummary={openFactSummary}
+          externalReviewSignalSummary={externalReviewSignalSummary}
+        />
         <CompanyShortAnalysis
           companyName={mockFallback.name}
           industry={fallbackIndustry}
@@ -783,6 +918,8 @@ export default async function CompanyPage({
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
         />
+        <CompanyOpenFactsSection facts={openFacts} />
+        <InterviewChecklistSection />
         <section className="space-y-3">
           <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
           <CompanyReviewsSection
@@ -795,7 +932,6 @@ export default async function CompanyPage({
         </section>
         <ExternalRatingsSection ratings={externalRatings} />
         <ExternalReviewSignalsSection signals={externalReviewSignals} />
-        <CompanyOpenFactsSection facts={openFacts} />
         <CompanyProAnalysis
           facts={reviewFacts}
           externalRatings={externalRatings}
@@ -854,7 +990,12 @@ export default async function CompanyPage({
         </div>
       </Card>
 
-      <CompanyDescriptionSection facts={openFacts} />
+      <CompanyDataSummary
+        facts={reviewFacts}
+        externalRatings={externalRatings}
+        openFactSummary={openFactSummary}
+        externalReviewSignalSummary={externalReviewSignalSummary}
+      />
 
       <CompanyShortAnalysis
         companyName={sbCompany.name}
@@ -865,6 +1006,10 @@ export default async function CompanyPage({
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
       />
+
+      <CompanyOpenFactsSection facts={openFacts} />
+
+      <InterviewChecklistSection />
 
       {/* Reviews: summary + ratings + risks + geo/roles + list (all from Supabase) */}
       <section className="space-y-3">
@@ -880,7 +1025,6 @@ export default async function CompanyPage({
 
       <ExternalRatingsSection ratings={externalRatings} />
       <ExternalReviewSignalsSection signals={externalReviewSignals} />
-      <CompanyOpenFactsSection facts={openFacts} />
 
       <CompanyProAnalysis
         facts={reviewFacts}

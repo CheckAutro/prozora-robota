@@ -12,7 +12,6 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  LockKeyhole,
   MapPin,
   MessageSquare,
   MessageSquareText,
@@ -965,11 +964,11 @@ function MissingInfoSection({ items }: { items: string[] }) {
   );
 }
 
-function ProBadge() {
+function FreeAnalysisBadge() {
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-ink/10 bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink-soft">
-      <LockKeyhole className="h-3 w-3" />
-      Pro-звіт
+      <CheckCircle2 className="h-3 w-3" />
+      Безкоштовно
     </span>
   );
 }
@@ -986,18 +985,15 @@ function ProStatusBadge({ status }: { status: ProStatus }) {
 function ProPreviewItem({
   title,
   section,
-  locked = false,
 }: {
   title: string;
   section: ProPreviewSection;
-  locked?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h4 className="text-sm font-semibold text-ink">{title}</h4>
         <div className="flex items-center gap-2">
-          {locked && <ProBadge />}
           <ProStatusBadge status={section.status} />
         </div>
       </div>
@@ -1031,7 +1027,7 @@ function ProListBlock({
           {icon}
           {title}
         </h4>
-        <ProBadge />
+        <FreeAnalysisBadge />
       </div>
       <ul className="space-y-2">
         {items.map((item) => (
@@ -1057,12 +1053,9 @@ function ProPreviewSection({ preview }: { preview: ProPreview }) {
           <p className="mt-1 text-sm text-ink-soft">
             {hasInsufficientData
               ? "Недостатньо даних для детального висновку. Нижче — що потрібно уточнити."
-              : "Перші блоки доступні як preview. Розширений Pro-звіт буде доданий без гарантій безпеки і з акцентом на питання для перевірки."}
+              : "Безкоштовний розширений аналіз на основі доступних даних, без гарантій безпеки і без вигаданих фактів."}
           </p>
         </div>
-        <Button disabled variant="secondary" size="sm">
-          Отримати розширений аналіз
-        </Button>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
@@ -1075,7 +1068,7 @@ function ProPreviewSection({ preview }: { preview: ProPreview }) {
         <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-sm font-semibold text-ink">Бронювання / відстрочка</h4>
-            <ProBadge />
+            <FreeAnalysisBadge />
           </div>
           <p className="text-sm leading-relaxed text-ink-soft">{preview.booking.summary}</p>
           <ul className="mt-3 space-y-1.5">
@@ -1105,7 +1098,7 @@ function ProPreviewSection({ preview }: { preview: ProPreview }) {
               <ShieldCheck className="h-4 w-4 text-brand-700" />
               Підсумкова рекомендація
             </h4>
-            <ProBadge />
+            <FreeAnalysisBadge />
           </div>
           <p className="text-sm leading-relaxed text-ink-soft">
             {preview.finalVerdict.text}
@@ -1114,7 +1107,9 @@ function ProPreviewSection({ preview }: { preview: ProPreview }) {
       </div>
 
       <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-xs text-ink-muted">
-        Оплата буде додана пізніше. Зараз це підготовлена структура майбутнього Pro-звіту.
+        Це відкритий безкоштовний аналіз на основі доступного тексту вакансії, відгуків
+        Прозора робота та підтверджених відкритих джерел. Якщо даних недостатньо,
+        блок показує питання і документи, які варто перевірити.
       </p>
     </Card>
   );
