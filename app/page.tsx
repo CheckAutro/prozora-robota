@@ -143,6 +143,23 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <section>
+        <Card className="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+          <div className="max-w-2xl">
+            <h2 className="font-display text-2xl font-bold text-ink">
+              Перевірте вакансію перед відгуком
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft sm:text-base">
+              Вставте посилання або текст вакансії — ми покажемо ризики, що відомо
+              про компанію, які є відгуки та що уточнити перед співбесідою.
+            </p>
+          </div>
+          <Button href="/check-vacancy" size="lg" className="justify-center">
+            <FileSearch className="h-4 w-4" /> Перевірити вакансію
+          </Button>
+        </Card>
+      </section>
+
       {/* ── Що можна перевірити ───────────────────────────────────────── */}
       <section>
         <SectionTitle

@@ -38,6 +38,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CompanyReviewsSection } from "@/components/product/CompanyReviews";
 import { ExternalRatingsSection } from "@/components/product/ExternalRatingsSection";
+import { AiCompanyAnalysisPanel } from "@/components/product/AiAnalysisPanel";
 
 // Pre-render known slugs at build time (both mock-data AND Supabase slugs
 // that were discovered at previous builds).
@@ -1087,6 +1088,10 @@ export default async function CompanyPage({
             </Button>
           </div>
         </Card>
+        <AiCompanyAnalysisPanel
+          companySlug={mockFallback.slug}
+          companyName={mockFallback.name}
+        />
         <CompanyDataSummary
           facts={reviewFacts}
           externalRatings={externalRatings}
@@ -1182,6 +1187,11 @@ export default async function CompanyPage({
           </Button>
         </div>
       </Card>
+
+      <AiCompanyAnalysisPanel
+        companySlug={sbCompany.slug}
+        companyName={sbCompany.name}
+      />
 
       <CompanyDataSummary
         facts={reviewFacts}

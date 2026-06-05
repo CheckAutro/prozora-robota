@@ -306,6 +306,9 @@ export default function AdminPage() {
           <Button href="/admin/open-facts" variant="outline" size="sm">
             Open facts
           </Button>
+          <Button href="/admin/ai-analysis" variant="outline" size="sm">
+            AI-аналізи
+          </Button>
           <Button onClick={() => void refresh()} variant="secondary" size="sm" disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Оновити
           </Button>

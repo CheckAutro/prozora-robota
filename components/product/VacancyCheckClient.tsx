@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { AiVacancyAnalysisSection } from "@/components/product/AiAnalysisPanel";
 import { cn } from "@/lib/cn";
 import { normalizeIndustry } from "@/lib/industry";
 import type {
@@ -1169,6 +1170,7 @@ function ManualTextFallback({ message }: { message: string }) {
 export function VacancyCheckClient() {
   const searchParams = useSearchParams();
   const qParam = searchParams.get("q") ?? "";
+  const companyParam = searchParams.get("company") ?? "";
 
   const [input, setInput] = useState(qParam);
   const [stage, setStage] = useState<Stage>({ type: "idle" });
@@ -1219,11 +1221,19 @@ export function VacancyCheckClient() {
     <div className="container-page max-w-4xl space-y-8 py-8 sm:py-10">
       <SectionTitle
         eyebrow="Перевірка вакансії"
-        title="Перевірити вакансію або роботодавця"
-        description="Ми перевіримо текст вакансії, компанію в базі, відгуки та ризики перед співбесідою."
+        title="Перевірити вакансію"
+        description="Вставте посилання або текст вакансії — система перевірить компанію, відкриті джерела, відгуки та ризики."
       />
 
+      <AiVacancyAnalysisSection initialCompanyName={companyParam} />
+
       <Card className="space-y-4 p-6">
+        <div>
+          <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка без AI</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Детермінований аналіз тексту вакансії, компанії в базі та відкритих даних сайту.
+          </p>
+        </div>
         <textarea
           ref={textareaRef}
           value={input}
