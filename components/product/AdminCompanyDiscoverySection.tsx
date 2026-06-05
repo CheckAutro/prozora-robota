@@ -3,18 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
-  CheckCircle2,
   Link2,
   Loader2,
   PenLine,
   RefreshCw,
   Search,
+  Square,
+  CheckSquare,
   Trash2,
   XCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
+import { AdminBulkActionDialog } from "@/components/product/AdminBulkActionDialog";
 import type { CompanyDiscoveryQueueItem, CompanyDiscoveryStatus } from "@/lib/types";
 
 function getAdminHeaders(accessToken: string): Record<string, string> {
@@ -30,6 +32,24 @@ const STATUS_META: Record<CompanyDiscoveryStatus, { label: string; color: string
   matched_existing: { label: "Звʼязано", color: "text-brand-700 bg-brand-50 border-brand-200" },
   rejected: { label: "Відхилено", color: "text-red-700 bg-red-50 border-red-200" },
 };
+
+type DiscoveryBulkAction = "reject" | "needs_review" | "create_safe";
+
+interface BulkSummary {
+  updated_count: number;
+  skipped_count: number;
+  errors: Array<{ id: string; error: string }>;
+}
+
+interface PendingBulkAction {
+  action: DiscoveryBulkAction;
+  ids: string[];
+  title: string;
+  fieldLabel: string;
+  changeLabel: string;
+  warning?: string;
+  confirmLabel: string;
+}
 
 function toDateInput(value: string | null): string {
   if (!value) return "";
@@ -186,10 +206,14 @@ function DiscoveryEditForm({
 
 function DiscoveryCard({
   item,
+  selected,
+  onSelect,
   onUpdate,
   onDelete,
 }: {
   item: CompanyDiscoveryQueueItem;
+  selected: boolean;
+  onSelect: (checked: boolean) => void;
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
@@ -223,7 +247,16 @@ function DiscoveryCard({
   return (
     <Card className="space-y-4 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 gap-3">
+          <button
+            type="button"
+            onClick={() => onSelect(!selected)}
+            className="mt-1 text-ink-muted hover:text-brand-700"
+            aria-label={selected ? "Зняти вибір" : "Вибрати запис"}
+          >
+            {selected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+          </button>
+          <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-display text-lg font-bold text-ink">{item.discoveredName}</h3>
             <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", statusMeta.color)}>
@@ -234,8 +267,12 @@ function DiscoveryCard({
             </span>
           </div>
           <p className="mt-1 text-sm text-ink-soft">
-            {item.suggestedSlug} · {item.sourceName} · {formatDate(item.collectedAt)}
+            {item.suggestedSlug} · {item.sourceName} · створено: {formatDate(item.createdAt)}
           </p>
+          {item.collectedAt && (
+            <p className="mt-0.5 text-xs text-ink-muted">Зібрано: {formatDate(item.collectedAt)}</p>
+          )}
+          </div>
         </div>
         {item.sourceUrl && (
           <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand-700 hover:text-brand-800">
@@ -252,6 +289,11 @@ function DiscoveryCard({
       </div>
 
       {item.description && <p className="text-sm leading-relaxed text-ink-soft">{item.description}</p>}
+      {item.rawExcerpt && (
+        <p className="rounded-xl bg-ink/[0.03] px-3 py-2 text-xs leading-relaxed text-ink-muted">
+          Raw excerpt: {item.rawExcerpt}
+        </p>
+      )}
       {item.adminNote && <p className="rounded-xl bg-ink/[0.03] px-3 py-2 text-xs text-ink-muted">{item.adminNote}</p>}
 
       <div className="flex flex-wrap gap-2 border-t border-ink/[0.06] pt-4">
@@ -267,6 +309,9 @@ function DiscoveryCard({
         <Button size="sm" onClick={() => void act({ status: "rejected" })} variant="secondary" disabled={busy}>
           <XCircle className="h-3.5 w-3.5" /> Відхилити
         </Button>
+        <Button size="sm" onClick={() => void act({ status: "needs_review" })} variant="outline" disabled={busy}>
+          <RefreshCw className="h-3.5 w-3.5" /> Повернути на перевірку
+        </Button>
         <Button size="sm" onClick={() => void onDelete(item.id)} variant="ghost" disabled={busy} className="text-red-700">
           <Trash2 className="h-3.5 w-3.5" /> Видалити
         </Button>
@@ -280,8 +325,13 @@ export function AdminCompanyDiscoverySection({ accessToken }: { accessToken: str
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [pendingBulk, setPendingBulk] = useState<PendingBulkAction | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | CompanyDiscoveryStatus>("all");
+  const [sourceName, setSourceName] = useState("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -307,12 +357,51 @@ export function AdminCompanyDiscoverySection({ accessToken }: { accessToken: str
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
       if (status !== "all" && item.status !== status) return false;
+      if (sourceName !== "all" && item.sourceName !== sourceName) return false;
       if (!needle) return true;
       return [item.discoveredName, item.suggestedSlug, item.sourceName, item.city, item.industry, item.matchedExistingSlug]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle));
     });
-  }, [items, query, status]);
+  }, [items, query, sourceName, status]);
+
+  const sourceOptions = useMemo(() => {
+    return Array.from(new Set(items.map((item) => item.sourceName).filter(Boolean))).sort((a, b) => a.localeCompare(b, "uk"));
+  }, [items]);
+
+  const selectedItems = useMemo(() => {
+    return filtered.filter((item) => selectedIds.has(item.id));
+  }, [filtered, selectedIds]);
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every((item) => selectedIds.has(item.id));
+
+  function toggleSelected(id: string, checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleAllFiltered() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const item of filtered) {
+        if (allVisibleSelected) next.delete(item.id);
+        else next.add(item.id);
+      }
+      return next;
+    });
+  }
+
+  function selectCurrentFilter() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const item of filtered) next.add(item.id);
+      return next;
+    });
+  }
 
   async function updateItem(id: string, patch: Record<string, unknown>) {
     setBusy(true);
@@ -349,6 +438,74 @@ export function AdminCompanyDiscoverySection({ accessToken }: { accessToken: str
       setError(err instanceof Error ? err.message : "Помилка видалення");
     } finally {
       setBusy(false);
+    }
+  }
+
+  function requestBulkAction(action: DiscoveryBulkAction) {
+    setError(null);
+    setBulkMessage(null);
+    if (selectedItems.length === 0) {
+      setError("Спочатку виберіть записи для bulk-дії.");
+      return;
+    }
+
+    const createTargets = action === "create_safe"
+      ? selectedItems.filter((item) => item.status === "needs_review" && !item.isImported)
+      : selectedItems;
+    if (createTargets.length === 0) {
+      setError("Немає needs_review записів для bulk create.");
+      return;
+    }
+
+    const meta: Record<DiscoveryBulkAction, Omit<PendingBulkAction, "action" | "ids">> = {
+      reject: {
+        title: "Bulk: Ignore / reject",
+        fieldLabel: "status / is_imported",
+        changeLabel: "rejected; is_imported=false",
+        confirmLabel: "Bulk ignore",
+      },
+      needs_review: {
+        title: "Bulk: Mark needs_review",
+        fieldLabel: "status / is_imported",
+        changeLabel: "needs_review; is_imported=false",
+        confirmLabel: "Mark needs_review",
+      },
+      create_safe: {
+        title: "Bulk: Create companies where safe",
+        fieldLabel: "public.companies / company_discovery_queue",
+        changeLabel: "create company only if suggested_slug is free; mark queue item imported",
+        warning: "Ця дія створює компанії в public.companies, але не створює reviews і не змінює рейтинги. Зайняті або невалідні slugs будуть пропущені.",
+        confirmLabel: "Create safe companies",
+      },
+    };
+
+    setPendingBulk({ action, ids: createTargets.map((item) => item.id), ...meta[action] });
+  }
+
+  async function executeBulkAction() {
+    if (!pendingBulk) return;
+    setBulkBusy(true);
+    setError(null);
+    setBulkMessage(null);
+    try {
+      const res = await fetch("/api/admin/company-discovery/bulk", {
+        method: "POST",
+        headers: getAdminHeaders(accessToken),
+        body: JSON.stringify({ action: pendingBulk.action, ids: pendingBulk.ids }),
+      });
+      const data = await res.json() as Partial<BulkSummary> & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Bulk action failed");
+      setBulkMessage(
+        `Bulk complete: updated ${data.updated_count ?? 0}, skipped ${data.skipped_count ?? 0}` +
+          (data.errors?.length ? `. Errors: ${data.errors.slice(0, 3).map((item) => item.error).join("; ")}` : "")
+      );
+      setPendingBulk(null);
+      setSelectedIds(new Set());
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Помилка bulk-дії");
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -390,7 +547,54 @@ export function AdminCompanyDiscoverySection({ accessToken }: { accessToken: str
           <option value="matched_existing">Звʼязано</option>
           <option value="rejected">Відхилено</option>
         </select>
+        <select
+          value={sourceName}
+          onChange={(e) => setSourceName(e.target.value)}
+          className="rounded-xl border border-ink/12 bg-white px-3 py-2.5 text-sm focus-ring"
+        >
+          <option value="all">Усі джерела</option>
+          {sourceOptions.map((source) => (
+            <option key={source} value={source}>{source}</option>
+          ))}
+        </select>
       </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/[0.06] bg-white p-3 text-sm shadow-card">
+        <label className="flex items-center gap-2 rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm text-ink-soft">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={toggleAllFiltered}
+            disabled={filtered.length === 0 || busy || bulkBusy}
+          />
+          Вибрати всі на сторінці
+        </label>
+        <Button size="sm" variant="outline" onClick={selectCurrentFilter} disabled={filtered.length === 0 || busy || bulkBusy}>
+          {allVisibleSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+          Вибрати всі за фільтром ({filtered.length})
+        </Button>
+        <span className="rounded-lg bg-ink/[0.04] px-2.5 py-1 text-xs font-medium text-ink-soft">
+          Вибрано: {selectedItems.length}
+        </span>
+        <Button size="sm" variant="secondary" disabled={busy || bulkBusy || selectedItems.length === 0} onClick={() => requestBulkAction("reject")}>
+          <XCircle className="h-3.5 w-3.5" /> Bulk ignore
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy || bulkBusy || selectedItems.length === 0} onClick={() => requestBulkAction("needs_review")}>
+          <RefreshCw className="h-3.5 w-3.5" /> Needs review
+        </Button>
+        <Button size="sm" disabled={busy || bulkBusy || selectedItems.length === 0} onClick={() => requestBulkAction("create_safe")}>
+          <Building2 className="h-3.5 w-3.5" /> Bulk create safe
+        </Button>
+        <span className="text-xs text-ink-muted">
+          Bulk-дії застосовуються тільки до вибраних записів.
+        </span>
+      </div>
+
+      {bulkMessage && (
+        <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">
+          {bulkMessage}
+        </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-ink-muted"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Завантаження...</p>
@@ -401,7 +605,14 @@ export function AdminCompanyDiscoverySection({ accessToken }: { accessToken: str
       ) : (
         <div className="space-y-4">
           {filtered.map((item) => (
-            <DiscoveryCard key={item.id} item={item} onUpdate={updateItem} onDelete={deleteItem} />
+            <DiscoveryCard
+              key={item.id}
+              item={item}
+              selected={selectedIds.has(item.id)}
+              onSelect={(checked) => toggleSelected(item.id, checked)}
+              onUpdate={updateItem}
+              onDelete={deleteItem}
+            />
           ))}
         </div>
       )}
@@ -409,6 +620,19 @@ export function AdminCompanyDiscoverySection({ accessToken }: { accessToken: str
       <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-xs text-ink-muted">
         Цей блок не створює відгуки, рейтинги або зовнішні сигнали. Він лише допомагає додавати нові компанії без дублів.
       </p>
+
+      <AdminBulkActionDialog
+        open={Boolean(pendingBulk)}
+        title={pendingBulk?.title ?? ""}
+        count={pendingBulk?.ids.length ?? 0}
+        fieldLabel={pendingBulk?.fieldLabel ?? ""}
+        changeLabel={pendingBulk?.changeLabel ?? ""}
+        warning={pendingBulk?.warning}
+        confirmLabel={pendingBulk?.confirmLabel}
+        busy={bulkBusy}
+        onCancel={() => setPendingBulk(null)}
+        onConfirm={() => void executeBulkAction()}
+      />
     </section>
   );
 }

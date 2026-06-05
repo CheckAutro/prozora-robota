@@ -83,6 +83,12 @@ function formatDate(value: string | null): string {
   return date.toLocaleDateString("uk-UA");
 }
 
+function shortText(value: string | null, limit = 240): string | null {
+  const text = value?.replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
+}
+
 function joinExamples(label: string, values: string[]): string | null {
   if (values.length === 0) return null;
   return `${label}: ${values.slice(0, 3).join("; ")}.`;
@@ -372,7 +378,7 @@ function CompanyOpenFactsSection({
     <Card className="space-y-4 p-6">
       <div>
         <h2 className="font-display text-lg font-bold text-ink">
-          Дані з відкритих вакансій
+          Відкриті факти з вакансій
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
           Це дані з відкритих вакансій. Вони є заявленими умовами роботодавця і
@@ -419,6 +425,11 @@ function CompanyOpenFactsSection({
               <TextPills label="Умови" values={fact.conditions} />
               <TextPills label="Переваги" values={fact.benefits} />
               <TextPills label="Вимоги" values={fact.requirements} />
+              {shortText(fact.rawExcerpt) && (
+                <p className="mt-3 rounded-lg bg-ink/[0.03] px-3 py-2 text-xs leading-relaxed text-ink-muted">
+                  {shortText(fact.rawExcerpt)}
+                </p>
+              )}
             </div>
           ))}
         </div>

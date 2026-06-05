@@ -240,6 +240,14 @@ export async function createCompanyFromDiscovery(
       .eq("id", id);
     if (updateError) return { ok: false, error: updateError.message };
 
+    if (item.sourceUrl) {
+      await client
+        .from("company_open_facts")
+        .update({ company_slug: slug, company_name: name })
+        .eq("source_url", item.sourceUrl)
+        .eq("company_slug", item.suggestedSlug);
+    }
+
     return { ok: true, slug, created: true };
   } catch (err) {
     return { ok: false, error: String(err) };
@@ -252,9 +260,17 @@ export async function linkDiscoveryToCompany(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const client = getServiceClient();
+    const { data: row, error: rowError } = await client
+      .from("company_discovery_queue")
+      .select(SELECT_COLUMNS)
+      .eq("id", id)
+      .single();
+    if (rowError || !row) return { ok: false, error: rowError?.message ?? "Discovery row not found" };
+    const item = rowToCompanyDiscovery(row as unknown as DiscoveryRow);
+
     const { data: existing, error: existingError } = await client
       .from("companies")
-      .select("slug")
+      .select("slug, name")
       .eq("slug", companySlug)
       .maybeSingle();
     if (existingError) return { ok: false, error: existingError.message };
@@ -271,6 +287,18 @@ export async function linkDiscoveryToCompany(
       })
       .eq("id", id);
     if (error) return { ok: false, error: error.message };
+
+    if (item.sourceUrl) {
+      await client
+        .from("company_open_facts")
+        .update({
+          company_slug: companySlug,
+          company_name: String((existing as { name?: string }).name ?? item.discoveredName),
+        })
+        .eq("source_url", item.sourceUrl)
+        .eq("company_slug", item.suggestedSlug);
+    }
+
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err) };

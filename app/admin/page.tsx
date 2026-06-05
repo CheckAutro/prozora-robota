@@ -300,6 +300,12 @@ export default function AdminPage() {
           description="Відгуки зберігаються у Supabase. Модерація виконується через захищений серверний API."
         />
         <div className="flex items-center gap-2">
+          <Button href="/admin/company-discovery" variant="outline" size="sm">
+            Нові компанії
+          </Button>
+          <Button href="/admin/open-facts" variant="outline" size="sm">
+            Open facts
+          </Button>
           <Button onClick={() => void refresh()} variant="secondary" size="sm" disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Оновити
           </Button>

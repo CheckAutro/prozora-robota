@@ -11,12 +11,15 @@ import {
   PenLine,
   RefreshCw,
   Search,
+  Square,
+  CheckSquare,
   Trash2,
   XCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
+import { AdminBulkActionDialog } from "@/components/product/AdminBulkActionDialog";
 import type { CompanyOpenFact, CompanyOpenFactStatus } from "@/lib/types";
 
 function getAdminHeaders(accessToken: string): Record<string, string> {
@@ -31,6 +34,29 @@ const STATUS_META: Record<CompanyOpenFactStatus, { label: string; color: string 
   verified:           { label: "Підтверджено",  color: "text-brand-700 bg-brand-50 border-brand-200" },
   rejected:           { label: "Відхилено",     color: "text-red-700 bg-red-50 border-red-200" },
 };
+
+type OpenFactsBulkAction =
+  | "mark_verified"
+  | "mark_needs_verification"
+  | "make_public"
+  | "make_private"
+  | "reject";
+
+interface BulkSummary {
+  updated_count: number;
+  skipped_count: number;
+  errors: Array<{ id: string; error: string }>;
+}
+
+interface PendingBulkAction {
+  action: OpenFactsBulkAction;
+  ids: string[];
+  title: string;
+  fieldLabel: string;
+  changeLabel: string;
+  warning?: string;
+  confirmLabel: string;
+}
 
 function arrayToText(values: string[]): string {
   return values.join("\n");
@@ -236,10 +262,14 @@ function FactEditForm({
 
 function FactCard({
   fact,
+  selected,
+  onSelect,
   onUpdate,
   onDelete,
 }: {
   fact: CompanyOpenFact;
+  selected: boolean;
+  onSelect: (checked: boolean) => void;
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
@@ -274,19 +304,29 @@ function FactCard({
   return (
     <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-ink">{fact.companyName}</span>
-            <span className="text-xs text-ink-muted">{fact.companySlug}</span>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-            <FileText className="h-3.5 w-3.5" />
-            <span>{fact.sourceName}</span>
-            {fact.sourceUrl && (
-              <a href={fact.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-700">
-                Джерело
-              </a>
-            )}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => onSelect(!selected)}
+            className="mt-1 text-ink-muted hover:text-brand-700"
+            aria-label={selected ? "Зняти вибір" : "Вибрати факт"}
+          >
+            {selected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+          </button>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-ink">{fact.companyName}</span>
+              <span className="text-xs text-ink-muted">{fact.companySlug}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+              <FileText className="h-3.5 w-3.5" />
+              <span>{fact.sourceName}</span>
+              {fact.sourceUrl && (
+                <a href={fact.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-brand-700">
+                  Джерело
+                </a>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -324,6 +364,9 @@ function FactCard({
         <Button size="sm" variant="primary" disabled={busy} onClick={() => void act({ status: "verified" })}>
           <CheckCircle2 className="h-3.5 w-3.5" /> Підтвердити
         </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void act({ status: "needs_verification" })}>
+          <RefreshCw className="h-3.5 w-3.5" /> На перевірку
+        </Button>
         <Button size="sm" variant="outline" disabled={busy || fact.isPublic || fact.status !== "verified"} onClick={() => void act({ is_public: true })}>
           <Eye className="h-3.5 w-3.5" /> Зробити публічним
         </Button>
@@ -355,8 +398,14 @@ export function AdminCompanyOpenFactsSection({ accessToken }: { accessToken: str
   const [facts, setFacts] = useState<CompanyOpenFact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [pendingBulk, setPendingBulk] = useState<PendingBulkAction | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | CompanyOpenFactStatus>("needs_verification");
+  const [publicFilter, setPublicFilter] = useState<"all" | "public" | "private">("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [companyFilter, setCompanyFilter] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -388,10 +437,51 @@ export function AdminCompanyOpenFactsSection({ accessToken }: { accessToken: str
     const company = companyFilter.trim().toLowerCase();
     return facts.filter((fact) => {
       if (statusFilter !== "all" && fact.status !== statusFilter) return false;
-      if (company && !`${fact.companyName} ${fact.companySlug}`.toLowerCase().includes(company)) return false;
+      if (publicFilter === "public" && !fact.isPublic) return false;
+      if (publicFilter === "private" && fact.isPublic) return false;
+      if (sourceFilter !== "all" && fact.sourceName !== sourceFilter) return false;
+      if (
+        company &&
+        !`${fact.companyName} ${fact.companySlug} ${fact.vacancyTitle ?? ""} ${fact.sourceName}`.toLowerCase().includes(company)
+      ) return false;
       return true;
     });
-  }, [facts, statusFilter, companyFilter]);
+  }, [companyFilter, facts, publicFilter, sourceFilter, statusFilter]);
+
+  const sourceOptions = useMemo(() => {
+    return Array.from(new Set(facts.map((fact) => fact.sourceName).filter(Boolean))).sort((a, b) => a.localeCompare(b, "uk"));
+  }, [facts]);
+
+  const selectedFacts = useMemo(() => filtered.filter((fact) => selectedIds.has(fact.id)), [filtered, selectedIds]);
+  const allVisibleSelected = filtered.length > 0 && filtered.every((fact) => selectedIds.has(fact.id));
+
+  function toggleSelected(id: string, checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleAllFiltered() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const fact of filtered) {
+        if (allVisibleSelected) next.delete(fact.id);
+        else next.add(fact.id);
+      }
+      return next;
+    });
+  }
+
+  function selectCurrentFilter() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const fact of filtered) next.add(fact.id);
+      return next;
+    });
+  }
 
   async function handleUpdate(id: string, patch: Record<string, unknown>) {
     const res = await fetch(`/api/admin/company-open-facts/${id}`, {
@@ -410,6 +500,90 @@ export function AdminCompanyOpenFactsSection({ accessToken }: { accessToken: str
     if (res.ok) await load();
   }
 
+  function requestBulkAction(action: OpenFactsBulkAction) {
+    setError(null);
+    setBulkMessage(null);
+
+    const selected = selectedFacts;
+    if (selected.length === 0) {
+      setError("Спочатку виберіть записи для bulk-дії.");
+      return;
+    }
+
+    const publicTargets = action === "make_public"
+      ? selected.filter((fact) => fact.status === "verified" && !fact.isPublic)
+      : selected;
+    const ids = publicTargets.map((fact) => fact.id);
+
+    if (ids.length === 0) {
+      setError("Для публікації потрібно вибрати verified записи, які ще не public.");
+      return;
+    }
+
+    const meta: Record<OpenFactsBulkAction, Omit<PendingBulkAction, "action" | "ids">> = {
+      mark_verified: {
+        title: "Bulk: Mark as verified",
+        fieldLabel: "status",
+        changeLabel: "verified",
+        confirmLabel: "Mark as verified",
+      },
+      mark_needs_verification: {
+        title: "Bulk: Mark as needs_verification",
+        fieldLabel: "status / is_public",
+        changeLabel: "needs_verification; is_public=false",
+        confirmLabel: "Mark as needs_verification",
+      },
+      make_public: {
+        title: "Bulk: Make public",
+        fieldLabel: "is_public",
+        changeLabel: "true",
+        warning: "Ця дія опублікує вибрані verified факти на публічних сторінках компаній. Це не змінить відгуки або рейтинги.",
+        confirmLabel: "Make public",
+      },
+      make_private: {
+        title: "Bulk: Make private",
+        fieldLabel: "is_public",
+        changeLabel: "false",
+        confirmLabel: "Make private",
+      },
+      reject: {
+        title: "Bulk: Archive / reject",
+        fieldLabel: "status / is_public",
+        changeLabel: "rejected; is_public=false",
+        confirmLabel: "Archive / reject",
+      },
+    };
+
+    setPendingBulk({ action, ids, ...meta[action] });
+  }
+
+  async function executeBulkAction() {
+    if (!pendingBulk) return;
+    setBulkBusy(true);
+    setError(null);
+    setBulkMessage(null);
+    try {
+      const res = await fetch("/api/admin/company-open-facts/bulk", {
+        method: "POST",
+        headers: getAdminHeaders(accessToken),
+        body: JSON.stringify({ action: pendingBulk.action, ids: pendingBulk.ids }),
+      });
+      const data = await res.json() as Partial<BulkSummary> & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Bulk action failed");
+      setBulkMessage(
+        `Bulk complete: updated ${data.updated_count ?? 0}, skipped ${data.skipped_count ?? 0}` +
+          (data.errors?.length ? `. Errors: ${data.errors.slice(0, 3).map((item) => item.error).join("; ")}` : "")
+      );
+      setPendingBulk(null);
+      setSelectedIds(new Set());
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Помилка bulk-дії");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -420,8 +594,8 @@ export function AdminCompanyOpenFactsSection({ accessToken }: { accessToken: str
             зовнішніх оцінок або внутрішнього рейтингу.
           </p>
           <p className="mt-1 text-xs text-ink-muted">
-            Дані з Work.ua / Robota.ua можуть публікуватися автоматично після
-            точного збігу компанії. Це не відгуки і не впливає на рейтинг.
+            Імпортовані дані залишаються private за замовчуванням. Публікація
+            можлива тільки після явної дії адміністратора.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => void load()}>
@@ -440,15 +614,71 @@ export function AdminCompanyOpenFactsSection({ accessToken }: { accessToken: str
           <option value="verified">Підтверджено</option>
           <option value="rejected">Відхилено</option>
         </select>
+        <select
+          className="rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm focus-ring"
+          value={publicFilter}
+          onChange={(e) => setPublicFilter(e.target.value as typeof publicFilter)}
+        >
+          <option value="all">Публічність: усі</option>
+          <option value="public">Тільки public</option>
+          <option value="private">Тільки private</option>
+        </select>
+        <select
+          className="rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm focus-ring"
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+        >
+          <option value="all">Усі джерела</option>
+          {sourceOptions.map((source) => (
+            <option key={source} value={source}>{source}</option>
+          ))}
+        </select>
         <div className="flex items-center gap-2 rounded-xl border border-ink/12 bg-white px-3 py-2">
           <Search className="h-4 w-4 text-ink-muted" />
           <input
             value={companyFilter}
             onChange={(e) => setCompanyFilter(e.target.value)}
-            placeholder="Компанія або slug"
+            placeholder="Компанія, slug, джерело або вакансія"
             className="bg-transparent text-sm focus:outline-none"
           />
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/[0.06] bg-white p-3 shadow-card">
+        <label className="flex items-center gap-2 rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm text-ink-soft">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={toggleAllFiltered}
+            disabled={filtered.length === 0}
+          />
+          Вибрати всі на сторінці
+        </label>
+        <Button size="sm" variant="outline" onClick={selectCurrentFilter} disabled={filtered.length === 0}>
+          {allVisibleSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+          Вибрати всі за фільтром ({filtered.length})
+        </Button>
+        <span className="rounded-lg bg-ink/[0.04] px-2.5 py-1 text-xs font-medium text-ink-soft">
+          Вибрано: {selectedFacts.length}
+        </span>
+        <Button size="sm" variant="outline" disabled={selectedFacts.length === 0 || bulkBusy} onClick={() => requestBulkAction("mark_verified")}>
+          <CheckCircle2 className="h-3.5 w-3.5" /> Bulk verified
+        </Button>
+        <Button size="sm" variant="outline" disabled={selectedFacts.length === 0 || bulkBusy} onClick={() => requestBulkAction("mark_needs_verification")}>
+          <RefreshCw className="h-3.5 w-3.5" /> Bulk needs verification
+        </Button>
+        <Button size="sm" variant="outline" disabled={selectedFacts.length === 0 || bulkBusy} className="border-amber-300 text-amber-800 hover:bg-amber-50" onClick={() => requestBulkAction("make_public")}>
+          <Eye className="h-3.5 w-3.5" /> Bulk public
+        </Button>
+        <Button size="sm" variant="outline" disabled={selectedFacts.length === 0 || bulkBusy} onClick={() => requestBulkAction("make_private")}>
+          <EyeOff className="h-3.5 w-3.5" /> Bulk private
+        </Button>
+        <Button size="sm" variant="secondary" disabled={selectedFacts.length === 0 || bulkBusy} onClick={() => requestBulkAction("reject")}>
+          <XCircle className="h-3.5 w-3.5" /> Bulk reject
+        </Button>
+        <span className="text-xs text-ink-muted">
+          Bulk-дії застосовуються тільки до вибраних записів.
+        </span>
       </div>
 
       {loading && (
@@ -461,12 +691,38 @@ export function AdminCompanyOpenFactsSection({ accessToken }: { accessToken: str
           <AlertTriangle className="h-4 w-4" /> {error}
         </div>
       )}
+      {bulkMessage && (
+        <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">
+          {bulkMessage}
+        </div>
+      )}
+
       {!loading && !error && filtered.length === 0 && (
         <p className="text-sm text-ink-muted">Даних з відкритих вакансій ще немає.</p>
       )}
       {!loading && filtered.map((fact) => (
-        <FactCard key={fact.id} fact={fact} onUpdate={handleUpdate} onDelete={handleDelete} />
+        <FactCard
+          key={fact.id}
+          fact={fact}
+          selected={selectedIds.has(fact.id)}
+          onSelect={(checked) => toggleSelected(fact.id, checked)}
+          onUpdate={handleUpdate}
+          onDelete={handleDelete}
+        />
       ))}
+
+      <AdminBulkActionDialog
+        open={Boolean(pendingBulk)}
+        title={pendingBulk?.title ?? ""}
+        count={pendingBulk?.ids.length ?? 0}
+        fieldLabel={pendingBulk?.fieldLabel ?? ""}
+        changeLabel={pendingBulk?.changeLabel ?? ""}
+        warning={pendingBulk?.warning}
+        confirmLabel={pendingBulk?.confirmLabel}
+        busy={bulkBusy}
+        onCancel={() => setPendingBulk(null)}
+        onConfirm={() => void executeBulkAction()}
+      />
     </section>
   );
 }
