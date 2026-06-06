@@ -299,7 +299,7 @@ function ExternalCompanySourcesSection({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-bold text-ink">
-            Оцінки та сигнали з відкритих джерел
+            Оцінки з відкритих джерел
           </h2>
           <p className="mt-1 text-sm text-ink-soft">
             Це зовнішні джерела, а не відгуки Прозора робота. Вони не впливають на внутрішній рейтинг.
@@ -387,10 +387,10 @@ function ExternalCompanySourcesSection({
   );
 }
 
-function CompanyAnalysisList({ items }: { items: string[] }) {
+function CompanyAnalysisList({ items, limit = 3 }: { items: string[]; limit?: number }) {
   return (
     <ul className="space-y-2">
-      {items.map((item) => (
+      {items.slice(0, limit).map((item) => (
         <li key={item} className="text-sm leading-relaxed text-ink-soft">
           {item}
         </li>
@@ -519,10 +519,7 @@ function CompanyShortAnalysis({
     `Джерела: ${openFactSummary.sources.length ? openFactSummary.sources.join(" / ") : "поки немає"}.`,
     `Відкритих фактів: ${openFactSummary.factsCount}.`,
     `Останнє оновлення: ${formatDate(openFactSummary.latestCollectedAt)}.`,
-    `Зарплата: ${yesNoData(openFactSummary.salaryExamples.length > 0 || facts.hasSalaryData)}.`,
-    `Місто: ${yesNoData(openFactSummary.cities.length > 0 || Boolean(city))}.`,
-    `Оформлення: ${yesNoData(openFactSummary.hasOfficialEmploymentMention || openFactSummary.employmentTypes.length > 0 || facts.hasEmploymentData)}.`,
-    `Графік: ${yesNoData(openFactSummary.schedules.length > 0 || facts.hasScheduleData)}.`,
+    `Є дані про зарплату: ${yesNoData(openFactSummary.salaryExamples.length > 0 || facts.hasSalaryData)} · місто: ${yesNoData(openFactSummary.cities.length > 0 || Boolean(city))} · оформлення: ${yesNoData(openFactSummary.hasOfficialEmploymentMention || openFactSummary.employmentTypes.length > 0 || facts.hasEmploymentData)} · графік: ${yesNoData(openFactSummary.schedules.length > 0 || facts.hasScheduleData)}.`,
   ];
 
   return (
@@ -550,15 +547,15 @@ function CompanyShortAnalysis({
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
           <h3 className="text-sm font-semibold text-ink">Що відомо</h3>
-          <CompanyAnalysisList items={known} />
+          <CompanyAnalysisList items={known} limit={3} />
         </div>
         <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
           <h3 className="text-sm font-semibold text-ink">На що звернути увагу</h3>
-          <CompanyAnalysisList items={attention} />
+          <CompanyAnalysisList items={attention} limit={3} />
         </div>
         <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
           <h3 className="text-sm font-semibold text-ink">Якої інформації бракує</h3>
-          <CompanyAnalysisList items={missing} />
+          <CompanyAnalysisList items={missing} limit={1} />
         </div>
       </div>
     </Card>
@@ -1050,59 +1047,61 @@ function CompanyProAnalysis({
         </div>
       </div>
 
-      <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
-        <p className="text-sm font-semibold text-ink">Що можна перевірити</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {proIncludes.map((item) => (
-            <p key={item} className="flex items-start gap-2 text-sm text-ink-soft">
-              <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-              {item}
+      <details className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
+          Показати деталі
+        </summary>
+        <div className="mt-4 space-y-4">
+          <div className="rounded-xl border border-ink/[0.06] bg-white p-4">
+            <p className="text-sm font-semibold text-ink">Що можна перевірити</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {proIncludes.map((item) => (
+                <p key={item} className="flex items-start gap-2 text-sm text-ink-soft">
+                  <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                  {item}
+                </p>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-ink-muted">
+              Порівняння з іншими роботодавцями буде доступне тільки там, де є достатньо фактичних даних.
+              Розширений аналіз не гарантує безпеку і не вигадує репутацію роботодавця.
             </p>
-          ))}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <ProEmployerSection
+              title="Зарплата і прозорість оплати"
+              summary={salarySummary}
+              questions={["Яка фіксована ставка?", "Як виплачуються бонуси?", "Чи є затримки виплат?"]}
+            />
+            <ProEmployerSection
+              title="Оформлення і юридичні ризики"
+              summary={employmentSummary}
+              questions={["Чи є офіційне оформлення з першого дня?", "Який тип договору?", "Чи оплачують випробувальний термін?"]}
+            />
+            <ProEmployerSection
+              title="Графік і навантаження"
+              summary={scheduleSummary}
+              questions={["Який точний графік?", "Як оплачуються понаднормові?", "Чи є нічні зміни або робота у вихідні?"]}
+            />
+            <ProEmployerSection
+              title="Бронювання / відстрочка"
+              summary={bookingSummary}
+              questions={["Чи надають бронювання?", "На якій підставі?", "На який строк?", "Чи дають письмове підтвердження?"]}
+            />
+            <ProEmployerSection title="Відгуки працівників" summary={reviewsSummary} />
+            <ProEmployerSection title="Оцінки з відкритих джерел" summary={externalSummary} />
+            <ProEmployerSection title="Сигнали з відкритих джерел" summary={externalReviewSignalText} />
+            <ProEmployerSection title="Дані з відкритих вакансій" summary={openFactsSummary} />
+            <ProEmployerSection
+              title="Що уточнити перед співбесідою"
+              summary="Практичні питання для перевірки умов."
+              questions={questions}
+            />
+            <ProEmployerSection title="Підсумкова рекомендація" summary={finalSummary} />
+          </div>
         </div>
-        <p className="mt-3 text-xs leading-relaxed text-ink-muted">
-          Порівняння з іншими роботодавцями буде доступне тільки там, де є достатньо фактичних даних.
-          Розширений аналіз не гарантує безпеку і не вигадує репутацію роботодавця.
-        </p>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <ProEmployerSection
-          title="Зарплата і прозорість оплати"
-          summary={salarySummary}
-          questions={["Яка фіксована ставка?", "Як виплачуються бонуси?", "Чи є затримки виплат?"]}
-        />
-        <ProEmployerSection
-          title="Оформлення і юридичні ризики"
-          summary={employmentSummary}
-          questions={["Чи є офіційне оформлення з першого дня?", "Який тип договору?", "Чи оплачують випробувальний термін?"]}
-        />
-        <ProEmployerSection
-          title="Графік і навантаження"
-          summary={scheduleSummary}
-          questions={["Який точний графік?", "Як оплачуються понаднормові?", "Чи є нічні зміни або робота у вихідні?"]}
-        />
-        <ProEmployerSection
-          title="Бронювання / відстрочка"
-          summary={bookingSummary}
-          questions={["Чи надають бронювання?", "На якій підставі?", "На який строк?", "Чи дають письмове підтвердження?"]}
-        />
-        <ProEmployerSection title="Відгуки працівників" summary={reviewsSummary} />
-        <ProEmployerSection title="Оцінки з відкритих джерел" summary={externalSummary} />
-        <ProEmployerSection title="Сигнали з відкритих джерел" summary={externalReviewSignalText} />
-        <ProEmployerSection title="Дані з відкритих вакансій" summary={openFactsSummary} />
-        <ProEmployerSection
-          title="Що уточнити перед співбесідою"
-          summary="Практичні питання для перевірки умов."
-          questions={questions}
-        />
-        <ProEmployerSection title="Підсумкова рекомендація" summary={finalSummary} />
-      </div>
-
-      <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-xs text-ink-muted">
-        Це відкритий безкоштовний аналіз на основі доступних даних. Якщо даних недостатньо,
-        блок показує питання, які варто уточнити перед співбесідою.
-      </p>
+      </details>
     </Card>
   );
 }

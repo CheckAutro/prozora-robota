@@ -365,15 +365,20 @@ export async function upsertExternalCompanySource(
       admin_note: input.admin_note ?? null,
     };
 
-    const { data: existing, error: existingError } = await client
+    let existingQuery = client
       .from("external_company_sources")
       .select("id")
       .eq("company_slug", payload.company_slug)
       .eq("source_name", payload.source_name)
-      .eq("source_type", payload.source_type)
-      .eq("source_url", payload.source_url)
-      .eq("title", payload.title)
-      .maybeSingle();
+      .eq("source_type", payload.source_type);
+    existingQuery = payload.source_url === null
+      ? existingQuery.is("source_url", null)
+      : existingQuery.eq("source_url", payload.source_url);
+    existingQuery = payload.title === null
+      ? existingQuery.is("title", null)
+      : existingQuery.eq("title", payload.title);
+
+    const { data: existing, error: existingError } = await existingQuery.maybeSingle();
 
     if (existingError) {
       return { ok: false, error: existingError.message, missingTable: isMissingTableError(existingError) };

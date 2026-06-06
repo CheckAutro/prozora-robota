@@ -59,6 +59,8 @@ interface CompanyMatchResult {
   candidates: CompanyMatchCandidate[];
 }
 
+type MatchConfidence = "low" | "medium" | "high";
+
 type ProStatus = "clear" | "unclear" | "suspicious" | "risky";
 type FinalVerdictLevel = "safe_to_apply" | "apply_with_caution" | "avoid";
 type BriefTone = "positive" | "warning" | "danger" | "neutral";
@@ -225,6 +227,13 @@ function matchCompany(companies: CompanyRow[], parsed: ParsedVacancy, rawInput: 
     company: scored[0]?.company ?? null,
     candidates,
   };
+}
+
+function matchConfidenceFromCandidate(candidate: CompanyMatchCandidate | undefined): MatchConfidence {
+  if (!candidate) return "low";
+  if (candidate.score >= 900) return "high";
+  if (candidate.score >= 750) return "medium";
+  return "low";
 }
 
 async function loadReviewsSummary(companySlug: string) {
@@ -833,6 +842,7 @@ export async function POST(req: NextRequest) {
   const matchInput = detected.url ? "" : input;
   const companyMatch = matchCompany(companies, parsed, matchInput);
   const matchedCompany = companyMatch.company;
+  const companyMatchConfidence = matchConfidenceFromCandidate(companyMatch.candidates[0]);
   let openFactSave:
     | { attempted: false }
     | {
@@ -986,6 +996,7 @@ export async function POST(req: NextRequest) {
     inputType: detected.inputType,
     parsedVacancy: parsed,
     matchedCompany,
+    matchConfidence: companyMatchConfidence,
     internalReviews,
     externalRatings,
     externalReviewSignals,
@@ -1006,6 +1017,7 @@ export async function POST(req: NextRequest) {
             cleanedSalary: parseResult.cleanedSalary,
             mainTextPreview: parseResult.mainTextPreview,
             companyMatchCandidates: companyMatch.candidates,
+            matchConfidence: companyMatchConfidence,
             openFactSave,
             discoverySave,
             companyDiscoverySaved: discoverySave.attempted ? discoverySave.ok : false,

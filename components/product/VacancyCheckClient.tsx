@@ -34,6 +34,7 @@ import type {
 } from "@/lib/types";
 
 type SourceName = "Work.ua" | "Robota.ua" | "URL" | "Вручну";
+type MatchConfidence = "low" | "medium" | "high";
 
 interface ReportCompany {
   name: string;
@@ -207,6 +208,7 @@ interface VacancyReport {
   inputType: string;
   parsedVacancy: ParsedVacancy;
   matchedCompany: ReportCompany | null;
+  matchConfidence: MatchConfidence;
   internalReviews: InternalReviewsSummary;
   externalRatings: ExternalRating[];
   externalReviewSignals: ExternalReviewSignalSummary | null;
@@ -469,12 +471,19 @@ function SignalList({
 }
 
 function VacancySummary({ report }: { report: VacancyReport }) {
-  const { parsedVacancy, matchedCompany, risk, analysis } = report;
+  const { parsedVacancy, matchedCompany, risk, analysis, matchConfidence } = report;
   const riskMeta = RISK_META[risk.riskLevel];
+  const matchMeta = matchConfidence === "high"
+    ? { label: "висока", className: "border-brand-200 bg-brand-50 text-brand-700" }
+    : matchConfidence === "medium"
+      ? { label: "середня", className: "border-amber-200 bg-amber-50 text-amber-700" }
+      : { label: "низька", className: "border-ink/10 bg-ink/[0.04] text-ink-soft" };
+  const companyLabel = matchedCompany?.name ?? parsedVacancy.companyName ?? "Компанію не визначено";
+  const summary = analysis.freeSummary.mainConclusion;
 
   return (
-    <Card className="space-y-5 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <Card className="space-y-4 p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">
             Джерело: {parsedVacancy.source}
@@ -482,10 +491,18 @@ function VacancySummary({ report }: { report: VacancyReport }) {
           <h2 className="mt-1 font-display text-xl font-bold text-ink">
             {parsedVacancy.title ?? "Вакансія без визначеної назви"}
           </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">
+            {summary}
+          </p>
         </div>
-        <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", riskMeta.className)}>
-          {analysis.freeSummary.riskLevelText || `Ризик: ${riskMeta.label}`}
-        </span>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", riskMeta.className)}>
+            {analysis.freeSummary.riskLevelText || `Ризик: ${riskMeta.label}`}
+          </span>
+          <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", matchMeta.className)}>
+            Впевненість: {matchMeta.label}
+          </span>
+        </div>
       </div>
 
       {report.fallbackReason && (
@@ -498,10 +515,10 @@ function VacancySummary({ report }: { report: VacancyReport }) {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DetailItem
           label="Компанія"
-          value={matchedCompany?.name ?? parsedVacancy.companyName}
+          value={companyLabel}
           icon={<Briefcase className="h-3.5 w-3.5" />}
         />
         <DetailItem
@@ -515,7 +532,7 @@ function VacancySummary({ report }: { report: VacancyReport }) {
           icon={<UsersRound className="h-3.5 w-3.5" />}
         />
         <DetailItem
-          label="Тип вводу"
+          label="Джерело"
           value={displayInputType(report.inputType)}
           icon={<Search className="h-3.5 w-3.5" />}
         />
@@ -532,10 +549,6 @@ function VacancySummary({ report }: { report: VacancyReport }) {
           {matchedCompany ? "Компанію знайдено в базі" : "Компанію не знайдено"}
         </span>
       </div>
-
-      <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
-        {analysis.companyInsight.summaryText}
-      </p>
     </Card>
   );
 }
@@ -577,30 +590,13 @@ function VacancyBriefStatusCard({
   );
 }
 
-function vacancyFactItems(parsed: ParsedVacancy): string[] {
-  return [
-    parsed.companyDescription ? `Опис компанії: ${parsed.companyDescription}` : null,
-    parsed.employmentType ? `Оформлення: ${parsed.employmentType}` : null,
-    parsed.schedule ? `Графік: ${parsed.schedule}` : null,
-    parsed.experience ? `Досвід: ${parsed.experience}` : null,
-    parsed.education ? `Освіта: ${parsed.education}` : null,
-    parsed.conditions.length ? `Умови: ${parsed.conditions.slice(0, 2).join("; ")}` : null,
-    parsed.benefits.length ? `Переваги: ${parsed.benefits.slice(0, 2).join("; ")}` : null,
-    parsed.requirements.length ? `Вимоги: ${parsed.requirements.slice(0, 2).join("; ")}` : null,
-  ].filter(Boolean).slice(0, 5) as string[];
-}
-
 function VacancyBriefSection({
   brief,
-  parsed,
 }: {
   brief: VacancyBrief;
-  parsed: ParsedVacancy;
 }) {
-  const facts = vacancyFactItems(parsed);
-
   return (
-    <Card className="space-y-5 p-6">
+    <Card className="space-y-4 p-5 sm:p-6">
       <div>
         <h3 className="font-display text-lg font-bold text-ink">
           Короткий аналіз вакансії
@@ -616,52 +612,8 @@ function VacancyBriefSection({
         <VacancyBriefStatusCard title="Графік" status={brief.scheduleStatus} />
       </div>
 
-      {facts.length > 0 && (
-        <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
-          <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
-            <FileText className="h-4 w-4 text-brand-700" />
-            Факти з вакансії
-          </h4>
-          <ul className="space-y-2">
-            {facts.map((fact) => (
-              <li key={fact} className="text-sm leading-relaxed text-ink-soft">
-                {fact}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
-          <h4 className="flex items-center gap-2 text-sm font-semibold text-amber-700">
-            <AlertTriangle className="h-4 w-4" />
-            Ризикові формулювання
-          </h4>
-          <SignalList
-            tone="warning"
-            items={brief.riskPhrases.slice(0, 3)}
-            emptyText="Критичних формулювань не знайдено."
-          />
-        </div>
-
-        <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
-          <h4 className="flex items-center gap-2 text-sm font-semibold text-brand-700">
-            <CircleHelp className="h-4 w-4" />
-            Що уточнити
-          </h4>
-          <ul className="space-y-2">
-            {brief.questionsToAsk.slice(0, 5).map((question) => (
-              <li key={question} className="text-sm leading-relaxed text-ink-soft">
-                {question}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
       <div className="rounded-xl bg-ink/[0.03] px-4 py-3">
-        <h4 className="mb-1 text-sm font-semibold text-ink">Висновок</h4>
+        <h4 className="mb-1 text-sm font-semibold text-ink">Короткий висновок</h4>
         <p className="text-sm leading-relaxed text-ink-soft">{brief.shortVerdict}</p>
       </div>
     </Card>
@@ -1120,28 +1072,35 @@ function ResultReport({ report }: { report: VacancyReport }) {
   return (
     <div className="space-y-5">
       <VacancySummary report={report} />
-      <VacancyBriefSection brief={report.analysis.vacancyBrief} parsed={report.parsedVacancy} />
-      <FreeSummarySection summary={report.analysis.freeSummary} />
-      <CompanySection
-        company={report.matchedCompany}
-        summary={report.internalReviews}
-        insight={report.analysis.companyInsight}
-      />
-      <ExternalRatingsSection
-        company={report.matchedCompany}
-        ratings={report.externalRatings}
-      />
-      <ExternalReviewSignalsSection
-        company={report.matchedCompany}
-        summary={report.externalReviewSignals}
-      />
-      <CompanyOpenFactsSection
-        company={report.matchedCompany}
-        summary={report.companyOpenFacts}
-      />
-      <RiskSection summary={report.analysis.freeSummary} />
-      <MissingInfoSection items={report.analysis.freeSummary.missingInfo} />
-      <ProPreviewSection preview={report.analysis.proPreview} />
+      <VacancyBriefSection brief={report.analysis.vacancyBrief} />
+      <details className="rounded-2xl border border-ink/[0.06] bg-white p-4 sm:p-5">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
+          Показати повний звіт
+        </summary>
+        <div className="mt-4 space-y-4">
+          <FreeSummarySection summary={report.analysis.freeSummary} />
+          <CompanySection
+            company={report.matchedCompany}
+            summary={report.internalReviews}
+            insight={report.analysis.companyInsight}
+          />
+          <ExternalRatingsSection
+            company={report.matchedCompany}
+            ratings={report.externalRatings}
+          />
+          <ExternalReviewSignalsSection
+            company={report.matchedCompany}
+            summary={report.externalReviewSignals}
+          />
+          <CompanyOpenFactsSection
+            company={report.matchedCompany}
+            summary={report.companyOpenFacts}
+          />
+          <RiskSection summary={report.analysis.freeSummary} />
+          <MissingInfoSection items={report.analysis.freeSummary.missingInfo} />
+          <ProPreviewSection preview={report.analysis.proPreview} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -1229,7 +1188,7 @@ export function VacancyCheckClient() {
 
       <Card className="space-y-4 p-6">
         <div>
-          <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка без AI</h2>
+          <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка</h2>
           <p className="mt-1 text-sm text-ink-soft">
             Детермінований аналіз тексту вакансії, компанії в базі та відкритих даних сайту.
           </p>

@@ -334,6 +334,15 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
         </div>
       </div>
 
+      <div className="rounded-2xl border border-brand-100 bg-brand-50/40 p-4 text-sm text-ink-soft">
+        <p className="font-semibold text-ink">Щоб джерела зʼявилися у списку:</p>
+        <ul className="mt-2 space-y-1.5">
+          <li>• Додайте URL вручну у форму нижче.</li>
+          <li>• Або запустіть backfill з існуючих даних командою <code className="rounded bg-white px-1.5 py-0.5 text-xs text-ink">npm run backfill:external-sources</code>.</li>
+          <li>• На сайті показуються тільки <strong>verified + is_public</strong>.</li>
+        </ul>
+      </div>
+
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <AlertTriangle className="h-4 w-4 shrink-0" /> {error}

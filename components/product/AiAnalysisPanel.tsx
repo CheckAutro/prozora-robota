@@ -123,6 +123,7 @@ function ListBlock({
 }
 
 function AiResultView({ data }: { data: AiResponse }) {
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const meta = RISK_META[data.analysis.risk_level];
   const sourceBreakdown = data.analysis.source_breakdown;
   const canShowScore =
@@ -138,46 +139,51 @@ function AiResultView({ data }: { data: AiResponse }) {
     source.source_name !== "Прозора робота" &&
     ["review", "rating", "discussion"].includes(source.signal_type)
   );
-  const hasCompanyPageOnly =
-    data.sources.length > 0 &&
-    sourceSignalCount === 0 &&
-    data.sources.every((source) => ["company_page", "vacancy"].includes(source.signal_type));
-  const sourceMetricLabel = sourceSignalCount > 0
-    ? "Зовнішні сигнали"
-    : hasCompanyPageOnly
-      ? "Джерела"
-      : "Зовнішні сигнали";
-  const sourceMetricValue = sourceSignalCount > 0
-    ? String(sourceSignalCount)
-    : hasCompanyPageOnly
-      ? "сторінка компанії"
-      : "не знайдено";
+  const externalSourceCount = data.analysis.source_breakdown.external_company_sources;
+  const summary = data.analysis.summary.trim();
+  const showSummaryToggle = summary.length > 220;
+  const displayedSummary = summaryExpanded || !showSummaryToggle
+    ? summary
+    : `${summary.slice(0, 220).trimEnd()}…`;
+  const keyFacts = [
+    ...data.analysis.known_facts.slice(0, 2),
+    data.analysis.risks[0],
+  ].filter(Boolean).slice(0, 3);
 
   return (
-    <Card className="space-y-5 p-6">
+    <Card className="space-y-4 p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <p className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
-            <Bot className="h-3.5 w-3.5" /> Швидка перевірка на основі доступних даних
+            <Search className="h-3.5 w-3.5" /> Швидка перевірка
           </p>
           <h3 className="mt-3 font-display text-xl font-bold text-ink">
-            {data.analysis.summary}
+            {displayedSummary || "Поки недостатньо даних для оцінки."}
           </h3>
+          {showSummaryToggle && (
+            <button
+              type="button"
+              onClick={() => setSummaryExpanded((value) => !value)}
+              className="mt-2 text-xs font-semibold text-brand-700 hover:text-brand-800"
+            >
+              {summaryExpanded ? "Показати менше" : "Показати більше"}
+            </button>
+          )}
           <p className="mt-2 text-xs text-ink-muted">
             {data.analysis.analysis_mode === "ai"
-              ? "Аналіз виконано на основі доступних даних сайту та тексту вакансії."
-              : "Аналіз виконано на основі правил і доступних даних сайту."}
+              ? "Аналіз на основі доступних даних сайту та тексту вакансії."
+              : "Аналіз на основі правил і доступних даних сайту."}
           </p>
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", meta.className)}>
             Ризик: {meta.label}
           </span>
-        <span className="text-xs text-ink-muted">
-          {canShowScore
-            ? `score ${data.analysis.risk_score} / 100 · `
-            : "Оцінка ризику: недостатньо даних · "}
-          впевненість: {CONFIDENCE_LABEL[data.analysis.confidence_level]}
+          <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
+            Впевненість: {CONFIDENCE_LABEL[data.analysis.confidence_level]}
+          </span>
+          <span className="text-xs text-ink-muted">
+            {canShowScore ? `score ${data.analysis.risk_score} / 100` : "Оцінка ризику: недостатньо даних"}
           </span>
         </div>
       </div>
@@ -189,61 +195,82 @@ function AiResultView({ data }: { data: AiResponse }) {
         </div>
       )}
 
-      <div className="grid gap-3 text-sm sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
           <p className="text-xs text-ink-muted">Відгуки</p>
-          <p className="font-semibold text-ink">{sourceBreakdown.internal_reviews}</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{sourceBreakdown.internal_reviews}</p>
         </div>
         <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
           <p className="text-xs text-ink-muted">Відкриті факти</p>
-          <p className="font-semibold text-ink">{sourceBreakdown.open_facts}</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{sourceBreakdown.open_facts}</p>
         </div>
         <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
-          <p className="text-xs text-ink-muted">{sourceMetricLabel}</p>
-          <p className="font-semibold text-ink">{sourceMetricValue}</p>
+          <p className="text-xs text-ink-muted">Зовнішні джерела</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{externalSourceCount}</p>
+        </div>
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+          <p className="text-xs text-ink-muted">Оцінки</p>
+          <p className="mt-1 text-sm font-semibold text-ink">
+            {sourceBreakdown.external_ratings > 0 ? "є" : "немає"}
+          </p>
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        <ListBlock title="Що відомо" items={data.analysis.known_facts} empty="Недостатньо перевірених фактів." />
-        <ListBlock title="Відкриті джерела та вакансії" items={data.analysis.external_findings} empty="Підтверджених відкритих джерел або вакансій поки немає." />
-        <ListBlock title="Ризики" items={data.analysis.risks} empty="Критичних ризиків не визначено." />
-        <ListBlock title="Чого бракує" items={data.analysis.missing_data} empty="Базові дані частково заповнені." />
-        <ListBlock title="Питання для співбесіди" items={data.analysis.interview_questions} empty="Питань поки немає." />
-        <ListBlock title="Рекомендації" items={data.analysis.recommendations} empty="Рекомендацій поки немає." />
-      </div>
-
-      <div className="space-y-3">
-        <h4 className="text-sm font-semibold text-ink">Зовнішні відгуки та сигнали</h4>
-        {externalSignalSources.length === 0 ? (
-          <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
-            Підтверджених зовнішніх відгуків або сигналів поки немає.
-          </p>
+      <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Ключове</p>
+        {keyFacts.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-soft">Недостатньо даних для оцінки ризику.</p>
         ) : (
-          <div className="grid gap-3">
-            {externalSignalSources.slice(0, 8).map((source) => (
-              <div key={`${source.source_url}-${source.title}`} className="rounded-xl border border-ink/[0.06] bg-white p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-ink">{source.source_name}: {source.title}</p>
-                    <p className="mt-1 text-sm leading-relaxed text-ink-soft">{source.snippet}</p>
-                  </div>
-                  {source.source_url && (
-                    <a
-                      href={source.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800"
-                    >
-                      Відкрити <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  )}
-                </div>
-              </div>
+          <ul className="mt-2 space-y-1.5">
+            {keyFacts.map((item) => (
+              <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+                <span>{item}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
+
+      <details className="rounded-xl border border-ink/[0.06] bg-white p-4">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
+          Показати деталі
+        </summary>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <ListBlock title="Що відомо" items={data.analysis.known_facts} empty="Недостатньо перевірених фактів." />
+          <ListBlock title="Відкриті джерела та вакансії" items={data.analysis.external_findings} empty="Підтверджених відкритих джерел або вакансій поки немає." />
+          <ListBlock title="Ризики" items={data.analysis.risks} empty="Критичних ризиків не визначено." />
+          <ListBlock title="Чого бракує" items={data.analysis.missing_data} empty="Базові дані частково заповнені." />
+          <ListBlock title="Питання для співбесіди" items={data.analysis.interview_questions} empty="Питань поки немає." />
+          <ListBlock title="Рекомендації" items={data.analysis.recommendations} empty="Рекомендацій поки немає." />
+          <div className="rounded-xl border border-ink/[0.06] bg-white p-4 lg:col-span-2">
+            <h4 className="mb-3 text-sm font-semibold text-ink">Джерела</h4>
+            {externalSignalSources.length === 0 ? (
+              <p className="text-sm text-ink-muted">Підтверджених зовнішніх відгуків або сигналів поки немає.</p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {externalSignalSources.slice(0, 8).map((source) => (
+                  <div key={`${source.source_url}-${source.title}`} className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-3">
+                    <p className="text-sm font-semibold text-ink">{source.source_name}</p>
+                    <p className="mt-1 text-xs text-ink-muted">{source.title}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-ink-soft">{source.snippet}</p>
+                    {source.source_url && (
+                      <a
+                        href={source.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:text-brand-800"
+                      >
+                        Відкрити <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </details>
 
       {data.analysis.finder_warnings && data.analysis.finder_warnings.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -271,7 +298,7 @@ async function postAiAnalyze(payload: Record<string, unknown>): Promise<AiRespon
   });
   const data = await res.json().catch(() => ({})) as AiResponse & { message?: string; error?: string };
   if (!res.ok) {
-    throw new Error(data.message ?? data.error ?? "Не вдалося виконати AI-аналіз.");
+    throw new Error(data.message ?? data.error ?? "Не вдалося виконати аналіз.");
   }
   return data;
 }
@@ -331,7 +358,7 @@ export function AiVacancyAnalysisSection({
     } catch (error) {
       setStage({
         type: "error",
-        message: error instanceof Error ? error.message : "Не вдалося виконати AI-аналіз.",
+        message: error instanceof Error ? error.message : "Не вдалося виконати аналіз.",
       });
     }
   }
@@ -402,7 +429,7 @@ export function AiVacancyAnalysisSection({
         </div>
 
         <p className="text-xs leading-relaxed text-ink-muted">
-          AI-аналіз не є відгуком і не впливає на рейтинг компанії. Зовнішні джерела
+          Автоматичний аналіз не є відгуком і не впливає на рейтинг компанії. Зовнішні джерела
           можуть потребувати перевірки і не додаються до відгуків автоматично.
         </p>
       </Card>
@@ -441,7 +468,7 @@ export function AiCompanyAnalysisPanel({
     } catch (error) {
       setStage({
         type: "error",
-        message: error instanceof Error ? error.message : "Не вдалося виконати AI-аналіз.",
+        message: error instanceof Error ? error.message : "Не вдалося виконати аналіз.",
       });
     }
   }
