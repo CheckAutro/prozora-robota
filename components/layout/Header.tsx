@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Menu, X, ShieldCheck } from "lucide-react";
+import { useGSAP } from "@gsap/react";
+import { gsap } from "@/lib/gsap-init";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { getBrowserClient } from "@/lib/supabase/client";
@@ -111,6 +113,54 @@ function AuthHeaderActions({
   );
 }
 
+function MobileMenuPanel({
+  pathname,
+  onNavigate,
+}: {
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useGSAP(
+    () => {
+      if (!ref.current) return;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      gsap.from(ref.current, {
+        opacity: 0,
+        y: -10,
+        duration: 0.25,
+        ease: "power2.out",
+        clearProps: "transform",
+      });
+    },
+    { scope: ref }
+  );
+
+  return (
+    <div ref={ref} className="border-t border-ink/[0.06] bg-canvas md:hidden">
+      <nav className="container-page flex flex-col gap-1 py-3">
+        {NAV.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            className={cn(
+              "rounded-lg px-3 py-2.5 text-sm font-medium",
+              pathname.startsWith(item.href)
+                ? "text-brand-700 bg-brand-50"
+                : "text-ink-soft hover:bg-ink/[0.04]"
+            )}
+          >
+            {item.label}
+          </Link>
+        ))}
+        <AuthHeaderActions layout="mobile" onNavigate={onNavigate} />
+      </nav>
+    </div>
+  );
+}
+
 export function Header() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -157,26 +207,10 @@ export function Header() {
       </div>
 
       {open && (
-        <div className="border-t border-ink/[0.06] bg-canvas md:hidden">
-          <nav className="container-page flex flex-col gap-1 py-3">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "rounded-lg px-3 py-2.5 text-sm font-medium",
-                  pathname.startsWith(item.href)
-                    ? "text-brand-700 bg-brand-50"
-                    : "text-ink-soft hover:bg-ink/[0.04]"
-                )}
-              >
-                {item.label}
-              </Link>
-            ))}
-            <AuthHeaderActions layout="mobile" onNavigate={() => setOpen(false)} />
-          </nav>
-        </div>
+        <MobileMenuPanel
+          pathname={pathname}
+          onNavigate={() => setOpen(false)}
+        />
       )}
     </header>
   );

@@ -18,6 +18,9 @@ import {
 import { SearchBar } from "@/components/product/SearchBar";
 import { Button } from "@/components/ui/Button";
 import { Card, SectionTitle } from "@/components/ui/Card";
+import { HeroAnimator } from "@/components/animations/HeroAnimator";
+import { StaggerGrid } from "@/components/animations/StaggerGrid";
+import { FadeInSection } from "@/components/animations/FadeInSection";
 import { getServerClient } from "@/lib/supabase/server";
 import { normalizeIndustry } from "@/lib/industry";
 import type { Review } from "@/lib/types";
@@ -112,7 +115,7 @@ export default async function HomePage() {
     <div className="container-page space-y-20 pb-20">
       {/* ── Hero ──────────────────────────────────────────────────────── */}
       <section className="py-12 sm:py-20">
-        <div className="mx-auto max-w-3xl text-center">
+        <HeroAnimator className="mx-auto max-w-3xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
             <ShieldCheck className="h-3.5 w-3.5" /> Анонімно · Для України
           </span>
@@ -140,7 +143,7 @@ export default async function HomePage() {
               <MessageSquarePlus className="h-4 w-4" /> Залишити відгук
             </Button>
           </div>
-        </div>
+        </HeroAnimator>
       </section>
 
       <section>
@@ -167,7 +170,7 @@ export default async function HomePage() {
           title="Реальні умови — до того, як іти на співбесіду"
           description="Анонімний досвід людей, які вже там працювали або проходили відбір."
         />
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StaggerGrid className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {WHAT_TO_CHECK.map(({ icon: Icon, label }) => (
             <div
               key={label}
@@ -179,7 +182,7 @@ export default async function HomePage() {
               <span className="text-sm font-medium text-ink">{label}</span>
             </div>
           ))}
-        </div>
+        </StaggerGrid>
       </section>
 
       {/* ── Популярні компанії (Supabase) ─────────────────────────────── */}
@@ -189,7 +192,7 @@ export default async function HomePage() {
             eyebrow="Популярні компанії"
             title="Перевірте відомих роботодавців"
           />
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StaggerGrid className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {featuredCompanies.map((c) => (
               <Link
                 key={c.slug}
@@ -219,7 +222,7 @@ export default async function HomePage() {
                 </Card>
               </Link>
             ))}
-          </div>
+          </StaggerGrid>
           <div className="mt-4 text-center">
             <Button href="/companies" variant="secondary" size="sm">
               Усі компанії
@@ -235,7 +238,7 @@ export default async function HomePage() {
             eyebrow="Останні відгуки"
             title="Що пишуть зараз"
           />
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <StaggerGrid className="mt-6 grid gap-4 md:grid-cols-3">
             {recentReviews.map((r) => {
               const avgRating = (() => {
                 const vals = [
@@ -280,13 +283,13 @@ export default async function HomePage() {
                 </Card>
               );
             })}
-          </div>
+          </StaggerGrid>
         </section>
       )}
 
       {/* ── Блок довіри ───────────────────────────────────────────────── */}
       <section>
-        <div className="rounded-2xl border border-ink/[0.06] bg-white p-6 sm:p-8">
+        <FadeInSection className="rounded-2xl border border-ink/[0.06] bg-white p-6 sm:p-8">
           <h2 className="font-display text-lg font-bold text-ink">
             Як ми дбаємо про конфіденційність
           </h2>
@@ -311,12 +314,12 @@ export default async function HomePage() {
               </div>
             ))}
           </div>
-        </div>
+        </FadeInSection>
       </section>
 
       {/* ── Bottom CTA ────────────────────────────────────────────────── */}
       <section>
-        <div className="rounded-2xl border border-brand-100 bg-brand-50 px-6 py-8 sm:px-10 sm:py-9">
+        <FadeInSection className="rounded-2xl border border-brand-100 bg-brand-50 px-6 py-8 sm:px-10 sm:py-9">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
             <div className="space-y-1.5">
               <h2 className="font-display text-xl font-bold text-ink sm:text-2xl">
@@ -333,7 +336,7 @@ export default async function HomePage() {
               </Button>
             </div>
           </div>
-        </div>
+        </FadeInSection>
       </section>
     </div>
   );

@@ -34,8 +34,10 @@
     "discover:external-sources": "npx tsx scripts/discover-external-company-sources.ts"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@hookform/resolvers": "^3.9.1",
     "@supabase/supabase-js": "^2.106.2",
+    "gsap": "^3.15.0",
     "lucide-react": "^0.460.0",
     "next": "16.2.7",
     "react": "19.2.7",
