@@ -27,6 +27,7 @@ export interface AiSourceBreakdown {
   open_facts: number;
   external_ratings: number;
   external_signals: number;
+  external_company_sources: number;
   found_external_sources: number;
   vacancy_text: boolean;
 }

@@ -37,6 +37,7 @@ interface AiAnalysis {
     open_facts: number;
     external_ratings: number;
     external_signals: number;
+    external_company_sources: number;
     found_external_sources: number;
     vacancy_text: boolean;
   };
@@ -157,14 +158,14 @@ function AiResultView({ data }: { data: AiResponse }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
-            <Bot className="h-3.5 w-3.5" /> AI-аналіз на основі доступних даних
+            <Bot className="h-3.5 w-3.5" /> Швидка перевірка на основі доступних даних
           </p>
           <h3 className="mt-3 font-display text-xl font-bold text-ink">
             {data.analysis.summary}
           </h3>
           <p className="mt-2 text-xs text-ink-muted">
             {data.analysis.analysis_mode === "ai"
-              ? "AI-аналіз виконано на основі доступних даних сайту та тексту вакансії."
+              ? "Аналіз виконано на основі доступних даних сайту та тексту вакансії."
               : "Аналіз виконано на основі правил і доступних даних сайту."}
           </p>
         </div>
@@ -172,11 +173,11 @@ function AiResultView({ data }: { data: AiResponse }) {
           <span className={cn("rounded-full border px-3 py-1 text-sm font-semibold", meta.className)}>
             Ризик: {meta.label}
           </span>
-          <span className="text-xs text-ink-muted">
-            {canShowScore
-              ? `score ${data.analysis.risk_score} / 100 · `
-              : "Оцінка ризику: недостатньо даних · "}
-            впевненість: {CONFIDENCE_LABEL[data.analysis.confidence_level]}
+        <span className="text-xs text-ink-muted">
+          {canShowScore
+            ? `score ${data.analysis.risk_score} / 100 · `
+            : "Оцінка ризику: недостатньо даних · "}
+          впевненість: {CONFIDENCE_LABEL[data.analysis.confidence_level]}
           </span>
         </div>
       </div>
@@ -252,7 +253,7 @@ function AiResultView({ data }: { data: AiResponse }) {
 
       <p className="flex items-start gap-2 rounded-xl bg-ink/[0.03] px-4 py-3 text-xs leading-relaxed text-ink-muted">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        {data.analysis.disclaimer} Зовнішні джерела можуть потребувати перевірки і не додаються до відгуків автоматично.
+        {data.analysis.disclaimer.replace("AI-аналіз", "Автоматичний аналіз")} Зовнішні джерела можуть потребувати перевірки і не додаються до відгуків автоматично.
       </p>
     </Card>
   );
@@ -450,7 +451,7 @@ export function AiCompanyAnalysisPanel({
       <Card className="space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="font-display text-lg font-bold text-ink">Швидка AI-перевірка компанії</h2>
+            <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка компанії</h2>
             <p className="mt-1 text-sm text-ink-soft">
               Перевірте компанію на основі доступних відгуків, відкритих вакансій,
               зовнішніх джерел і сигналів.

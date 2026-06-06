@@ -24,6 +24,11 @@ import {
   type CompanyOpenFactSummary,
 } from "@/lib/company-open-facts-service";
 import {
+  getPublicCompanyExternalSources,
+  getPublicCompanyExternalSourceSummary,
+  type ExternalCompanySourceSummary,
+} from "@/lib/external/company-sources";
+import {
   getPublicExternalReviewSignals,
   getPublicExternalReviewSignalSummary,
   SENTIMENT_LABELS,
@@ -33,7 +38,7 @@ import {
 import { getServerClient } from "@/lib/supabase/server";
 import { normalizeIndustry } from "@/lib/industry";
 import { cn } from "@/lib/cn";
-import type { CompanyOpenFact, ExternalRating, ExternalReviewSignal } from "@/lib/types";
+import type { CompanyOpenFact, ExternalRating, ExternalReviewSignal, ExternalCompanySource } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CompanyReviewsSection } from "@/components/product/CompanyReviews";
@@ -143,19 +148,29 @@ function getCompanyDataLevel(
   facts: PublishedCompanyReviewFacts,
   externalRatingsCount: number,
   openFactsCount: number,
-  externalReviewSignalsCount: number
+  externalReviewSignalsCount: number,
+  externalCompanySourcesCount: number
 ): "Поки недостатньо даних" | "Є часткові дані" | "Є достатньо даних" {
   if (
     facts.reviewCount === 0 &&
     externalRatingsCount === 0 &&
     openFactsCount === 0 &&
-    externalReviewSignalsCount === 0
+    externalReviewSignalsCount === 0 &&
+    externalCompanySourcesCount === 0
   ) {
     return "Поки недостатньо даних";
   }
   if (
     facts.reviewCount >= 5 ||
-    (facts.reviewCount >= 2 && (externalRatingsCount >= 2 || openFactsCount >= 2 || externalReviewSignalsCount >= 2))
+    (
+      facts.reviewCount >= 2 &&
+      (
+        externalRatingsCount >= 2 ||
+        openFactsCount >= 2 ||
+        externalReviewSignalsCount >= 2 ||
+        externalCompanySourcesCount >= 2
+      )
+    )
   ) {
     return "Є достатньо даних";
   }
@@ -176,14 +191,25 @@ function externalSignalTopicList(summary: ExternalReviewSignalSummary): string {
   return summary.topics.map((topic) => TOPIC_LABELS[topic].toLowerCase()).slice(0, 4).join(", ");
 }
 
+function externalSourceTypeLabel(type: string): string {
+  if (type === "reviews") return "відгуки";
+  if (type === "rating") return "оцінка";
+  if (type === "vacancy") return "вакансія";
+  if (type === "company_page") return "сторінка компанії";
+  if (type === "article") return "стаття";
+  return "джерело";
+}
+
 function CompanyDataSummary({
   facts,
+  externalCompanySourceSummary,
   externalRatings,
   openFacts,
   openFactSummary,
   externalReviewSignalSummary,
 }: {
   facts: PublishedCompanyReviewFacts;
+  externalCompanySourceSummary: ExternalCompanySourceSummary;
   externalRatings: ExternalRating[];
   openFacts: CompanyOpenFact[];
   openFactSummary: CompanyOpenFactSummary;
@@ -193,7 +219,8 @@ function CompanyDataSummary({
     facts,
     externalRatings.length,
     openFactSummary.factsCount,
-    externalReviewSignalSummary.signalCount
+    externalReviewSignalSummary.signalCount,
+    externalCompanySourceSummary.sourceCount
   );
   const realVacancyFacts = getRealVacancyFacts(openFacts);
   const sourceSummaryFacts = getSourceSummaryFacts(openFacts);
@@ -218,9 +245,17 @@ function CompanyDataSummary({
     },
     {
       icon: Star,
-      label: "Зовнішні оцінки",
+      label: "Відкриті джерела",
+        value: externalCompanySourceSummary.sourceCount > 0
+        ? `${externalCompanySourceSummary.sourceCount} джерел`
+        : "Поки немає перевірених джерел",
+      tone: externalCompanySourceSummary.sourceCount > 0 ? "text-brand-700 bg-brand-50" : "text-ink-soft bg-ink/[0.03]",
+    },
+    {
+      icon: Star,
+      label: "Оцінки з відкритих джерел",
       value: externalRatings.length > 0
-        ? `${externalRatings.length} підтверджених джерел`
+        ? `${externalRatings.length} підтверджених оцінок`
         : "Зовнішні оцінки поки не підтверджені",
       tone: externalRatings.length > 0 ? "text-brand-700 bg-brand-50" : "text-ink-soft bg-ink/[0.03]",
     },
@@ -233,7 +268,7 @@ function CompanyDataSummary({
   ];
 
   return (
-    <Card className="grid gap-3 p-4 sm:grid-cols-2">
+    <Card className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
       {cards.map(({ icon: Icon, label, value, tone }) => (
         <div key={label} className="flex items-start gap-3 rounded-xl border border-ink/[0.06] bg-white p-3">
           <span className={cn("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", tone)}>
@@ -245,6 +280,109 @@ function CompanyDataSummary({
           </div>
         </div>
       ))}
+    </Card>
+  );
+}
+
+function ExternalCompanySourcesSection({
+  sources,
+  summary,
+}: {
+  sources: ExternalCompanySource[];
+  summary: ExternalCompanySourceSummary;
+}) {
+  const visibleSources = summary.topSources.slice(0, 3);
+  const hasMore = summary.sourceCount > visibleSources.length;
+
+  return (
+    <Card className="space-y-4 p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold text-ink">
+            Оцінки та сигнали з відкритих джерел
+          </h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Це зовнішні джерела, а не відгуки Прозора робота. Вони не впливають на внутрішній рейтинг.
+          </p>
+        </div>
+        <p className="rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
+          {summary.sourceCount > 0 ? `${summary.sourceCount} джерел` : "Поки немає джерел"}
+        </p>
+      </div>
+
+      {summary.sourceCount === 0 ? (
+        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
+          Підтверджених зовнішніх відгуків або сигналів поки немає.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            {visibleSources.map((source) => (
+              <div key={`${source.sourceName}-${source.title ?? source.shortSummary}`} className="rounded-xl border border-ink/[0.06] bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-ink">{source.sourceName}</p>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {externalSourceTypeLabel(source.sourceType)}
+                      {source.collectedAt ? ` · ${formatDate(source.collectedAt)}` : ""}
+                    </p>
+                  </div>
+                  <div className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
+                    {source.confidence === "high" ? "висока впевненість" : source.confidence === "medium" ? "середня впевненість" : "низька впевненість"}
+                  </div>
+                </div>
+                {source.title && (
+                  <p className="mt-3 text-sm font-medium text-ink">{source.title}</p>
+                )}
+                <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                  {source.shortSummary}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                  {source.ratingValue !== null && (
+                    <span className="rounded-full bg-ink/[0.04] px-2.5 py-1">
+                      {source.ratingValue.toFixed(1)} / {source.ratingScale ?? 5}
+                    </span>
+                  )}
+                  {source.reviewsCount > 0 && (
+                    <span className="rounded-full bg-ink/[0.04] px-2.5 py-1">
+                      {source.reviewsCount} оцінок
+                    </span>
+                  )}
+                  {source.sourceUrl && (
+                    <a
+                      href={source.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto inline-flex items-center gap-1 font-medium text-brand-700 hover:text-brand-800"
+                    >
+                      Джерело ↗
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {hasMore && (
+            <details className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-ink">
+                Показати ще {summary.sourceCount - visibleSources.length} джерел
+              </summary>
+              <div className="mt-3 grid gap-2 text-sm text-ink-soft">
+                {sources.slice(3).map((source) => (
+                  <div key={source.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2">
+                    <span className="font-medium text-ink">{source.sourceName}</span>
+                    <span className="text-ink-muted">·</span>
+                    <span>{externalSourceTypeLabel(source.sourceType)}</span>
+                    <span className="text-ink-muted">·</span>
+                    <span className="line-clamp-1">{source.shortSummary}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
@@ -270,6 +408,7 @@ function CompanyShortAnalysis({
   openFacts,
   openFactSummary,
   externalReviewSignalSummary,
+  externalCompanySourceSummary,
 }: {
   companyName: string;
   industry: string | null;
@@ -279,18 +418,21 @@ function CompanyShortAnalysis({
   openFacts: CompanyOpenFact[];
   openFactSummary: CompanyOpenFactSummary;
   externalReviewSignalSummary: ExternalReviewSignalSummary;
+  externalCompanySourceSummary: ExternalCompanySourceSummary;
 }) {
   const dataLevel = getCompanyDataLevel(
     facts,
     externalRatings.length,
     openFactSummary.factsCount,
-    externalReviewSignalSummary.signalCount
+    externalReviewSignalSummary.signalCount,
+    externalCompanySourceSummary.sourceCount
   );
   const noData =
     facts.reviewCount === 0 &&
     externalRatings.length === 0 &&
     openFactSummary.factsCount === 0 &&
-    externalReviewSignalSummary.signalCount === 0;
+    externalReviewSignalSummary.signalCount === 0 &&
+    externalCompanySourceSummary.sourceCount === 0;
   const realVacancyFacts = getRealVacancyFacts(openFacts);
   const sourceSummaryFacts = getSourceSummaryFacts(openFacts);
   const conclusion = noData
@@ -322,11 +464,16 @@ function CompanyShortAnalysis({
     city ? `Місто: ${city}.` : "Місто компанії не вказано.",
     facts.reviewCount > 0 ? `Опубліковані відгуки на Прозора робота: ${facts.reviewCount}.` : null,
     externalRatings.length > 0 ? `Підтверджені зовнішні джерела: ${externalRatings.length}.` : null,
+    externalCompanySourceSummary.sourceCount > 0 ? `Є зовнішні джерела: ${externalCompanySourceSummary.sourceCount}.` : null,
     externalReviewSignalSummary.signalCount > 0 ? "Є узагальнені сигнали з відкритих джерел." : null,
     externalReviewSignalSummary.topics.length > 0
       ? `Найчастіші теми за відкритими джерелами: ${externalSignalTopicList(externalReviewSignalSummary)}.`
       : null,
-    openFactSummary.factsCount > 0 ? `Є відкриті факти: ${openFactSummary.sources.join(" / ")}.` : null,
+    realVacancyFacts.length > 0
+      ? `Є дані з відкритих вакансій: ${openFactSummary.sources.join(" / ")}.`
+      : sourceSummaryFacts.length > 0
+        ? "Є сторінка компанії у відкритому джерелі."
+        : null,
     ...sourceSummaryLines,
     ...sourceVacancyCountLines,
     joinExamples("У вакансіях згадуються міста", openFactSummary.cities),
@@ -340,10 +487,11 @@ function CompanyShortAnalysis({
       : null,
     facts.reviewCount > 0 ? `Є ${facts.reviewCount} опублікованих відгуків на Прозора робота.` : null,
     externalRatings.length > 0 ? `Є ${externalRatings.length} підтверджених зовнішніх джерел.` : null,
+    externalCompanySourceSummary.sourceCount > 0 ? "Є перевірені зовнішні джерела та вакансії." : null,
     externalReviewSignalSummary.negativeCount + externalReviewSignalSummary.mixedCount > 0
       ? "У відкритих джерелах є змішані або негативні згадки. Їх потрібно перевірити на співбесіді."
       : null,
-    openFactSummary.factsCount > 0 ? "Відкриті факти не є досвідом працівників." : null,
+    realVacancyFacts.length > 0 ? "Відкриті факти не є досвідом працівників." : null,
     openFactSummary.salaryExamples.length > 0
       ? "Є приклади зарплат з відкритих вакансій, але їх потрібно підтверджувати з роботодавцем."
       : null,
@@ -749,29 +897,34 @@ function CompanyProAnalysis({
   openFacts,
   openFactSummary,
   externalReviewSignalSummary,
+  externalCompanySourceSummary,
 }: {
   facts: PublishedCompanyReviewFacts;
   externalRatings: ExternalRating[];
   openFacts: CompanyOpenFact[];
   openFactSummary: CompanyOpenFactSummary;
   externalReviewSignalSummary: ExternalReviewSignalSummary;
+  externalCompanySourceSummary: ExternalCompanySourceSummary;
 }) {
   const dataLevel = getCompanyDataLevel(
     facts,
     externalRatings.length,
     openFactSummary.factsCount,
-    externalReviewSignalSummary.signalCount
+    externalReviewSignalSummary.signalCount,
+    externalCompanySourceSummary.sourceCount
   );
   const lowData = dataLevel === "Поки недостатньо даних";
   const onlyOpenFacts =
     facts.reviewCount === 0 &&
     externalRatings.length === 0 &&
     externalReviewSignalSummary.signalCount === 0 &&
+    externalCompanySourceSummary.sourceCount === 0 &&
     openFactSummary.factsCount > 0;
   const onlyExternalReviewSignals =
     facts.reviewCount === 0 &&
     externalRatings.length === 0 &&
     openFactSummary.factsCount === 0 &&
+    externalCompanySourceSummary.sourceCount === 0 &&
     externalReviewSignalSummary.signalCount > 0;
   const salaryCounts = formatCounts(facts.salaryMatchCounts, {
     yes: "відповідає заявленій",
@@ -1050,6 +1203,8 @@ export default async function CompanyPage({
       externalRatings,
       externalReviewSignals,
       externalReviewSignalSummary,
+      externalCompanySources,
+      externalCompanySourceSummary,
       reviewFacts,
       openFacts,
       openFactSummary,
@@ -1057,6 +1212,8 @@ export default async function CompanyPage({
       getPublicExternalRatings(slug),
       getPublicExternalReviewSignals(slug),
       getPublicExternalReviewSignalSummary(slug),
+      getPublicCompanyExternalSources(slug),
+      getPublicCompanyExternalSourceSummary(slug),
       getPublishedCompanyReviewFacts(slug),
       getPublicCompanyOpenFacts(slug),
       getPublicCompanyOpenFactsSummary(slug),
@@ -1098,6 +1255,11 @@ export default async function CompanyPage({
           openFacts={openFacts}
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
+          externalCompanySourceSummary={externalCompanySourceSummary}
+        />
+        <ExternalCompanySourcesSection
+          sources={externalCompanySources}
+          summary={externalCompanySourceSummary}
         />
         <CompanyShortAnalysis
           companyName={mockFallback.name}
@@ -1108,6 +1270,7 @@ export default async function CompanyPage({
           openFacts={openFacts}
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
+          externalCompanySourceSummary={externalCompanySourceSummary}
         />
         <PreliminaryConclusion
           companySlug={mockFallback.slug}
@@ -1135,6 +1298,7 @@ export default async function CompanyPage({
           openFacts={openFacts}
           openFactSummary={openFactSummary}
           externalReviewSignalSummary={externalReviewSignalSummary}
+          externalCompanySourceSummary={externalCompanySourceSummary}
         />
         <p className="text-center text-xs text-ink-muted">
           Інформація про компанію формується на основі анонімних відгуків і не є офіційною
@@ -1146,20 +1310,24 @@ export default async function CompanyPage({
 
   // ── Main page: real Supabase company + real published reviews ─────────────
   const industry = normalizeIndustry(sbCompany.industry);
-  const [
-    externalRatings,
-    externalReviewSignals,
-    externalReviewSignalSummary,
-    reviewFacts,
-    openFacts,
-    openFactSummary,
-  ] = await Promise.all([
-    getPublicExternalRatings(sbCompany.slug),
-    getPublicExternalReviewSignals(sbCompany.slug),
-    getPublicExternalReviewSignalSummary(sbCompany.slug),
-    getPublishedCompanyReviewFacts(sbCompany.slug),
-    getPublicCompanyOpenFacts(sbCompany.slug),
-    getPublicCompanyOpenFactsSummary(sbCompany.slug),
+    const [
+      externalRatings,
+      externalReviewSignals,
+      externalReviewSignalSummary,
+      externalCompanySources,
+      externalCompanySourceSummary,
+      reviewFacts,
+      openFacts,
+      openFactSummary,
+    ] = await Promise.all([
+      getPublicExternalRatings(sbCompany.slug),
+      getPublicExternalReviewSignals(sbCompany.slug),
+      getPublicExternalReviewSignalSummary(sbCompany.slug),
+      getPublicCompanyExternalSources(sbCompany.slug),
+      getPublicCompanyExternalSourceSummary(sbCompany.slug),
+      getPublishedCompanyReviewFacts(sbCompany.slug),
+      getPublicCompanyOpenFacts(sbCompany.slug),
+      getPublicCompanyOpenFactsSummary(sbCompany.slug),
   ]);
 
   return (
@@ -1199,6 +1367,12 @@ export default async function CompanyPage({
         openFacts={openFacts}
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
+        externalCompanySourceSummary={externalCompanySourceSummary}
+      />
+
+      <ExternalCompanySourcesSection
+        sources={externalCompanySources}
+        summary={externalCompanySourceSummary}
       />
 
       <CompanyShortAnalysis
@@ -1210,6 +1384,7 @@ export default async function CompanyPage({
         openFacts={openFacts}
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
+        externalCompanySourceSummary={externalCompanySourceSummary}
       />
 
       <PreliminaryConclusion
@@ -1245,6 +1420,7 @@ export default async function CompanyPage({
         openFacts={openFacts}
         openFactSummary={openFactSummary}
         externalReviewSignalSummary={externalReviewSignalSummary}
+        externalCompanySourceSummary={externalCompanySourceSummary}
       />
 
       <p className="text-center text-xs text-ink-muted">

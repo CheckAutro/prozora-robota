@@ -13,6 +13,7 @@ import type { CompanyListItem, ReviewMetricsBySlug } from "@/lib/company-service
 import type { ExternalRatingSummaryBySlug } from "@/lib/external-ratings-service";
 import type { CompanyOpenFactSummaryBySlug } from "@/lib/company-open-facts-service";
 import type { ExternalReviewSignalSummaryBySlug } from "@/lib/external-review-signals-service";
+import type { ExternalCompanySourceSummaryBySlug } from "@/lib/external/company-sources";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ interface Props {
   openFactSummaries: CompanyOpenFactSummaryBySlug;
   /** Per-slug public external review signal summaries, computed server-side. */
   externalReviewSignalSummaries: ExternalReviewSignalSummaryBySlug;
+  /** Per-slug public external company source summaries, computed server-side. */
+  externalCompanySourceSummaries: ExternalCompanySourceSummaryBySlug;
 }
 
 // ── Search helpers (preserved from previous version) ─────────────────────────
@@ -104,6 +107,7 @@ export function CompaniesClient({
   externalRatingSummaries,
   openFactSummaries,
   externalReviewSignalSummaries,
+  externalCompanySourceSummaries,
 }: Props) {
   const [query, setQuery]                           = useState("");
   const [city, setCity]                             = useState("all");
@@ -326,6 +330,7 @@ export function CompaniesClient({
                 company={item.data}
                 metrics={metrics[item.data.slug] ?? null}
                 externalRatingSummary={externalRatingSummaries[item.data.slug] ?? null}
+                externalCompanySourceSummary={externalCompanySourceSummaries[item.data.slug] ?? null}
                 openFactSummary={openFactSummaries[item.data.slug] ?? null}
                 externalReviewSignalSummary={externalReviewSignalSummaries[item.data.slug] ?? null}
               />
@@ -335,6 +340,7 @@ export function CompaniesClient({
                 company={item.data}
                 metrics={metrics[item.data.slug] ?? null}
                 externalRatingSummary={externalRatingSummaries[item.data.slug] ?? null}
+                externalCompanySourceSummary={externalCompanySourceSummaries[item.data.slug] ?? null}
                 openFactSummary={openFactSummaries[item.data.slug] ?? null}
                 externalReviewSignalSummary={externalReviewSignalSummaries[item.data.slug] ?? null}
               />

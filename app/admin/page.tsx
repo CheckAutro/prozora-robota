@@ -306,6 +306,9 @@ export default function AdminPage() {
           <Button href="/admin/open-facts" variant="outline" size="sm">
             Open facts
           </Button>
+          <Button href="/admin/external-sources" variant="outline" size="sm">
+            External sources
+          </Button>
           <Button href="/admin/ai-analysis" variant="outline" size="sm">
             AI-аналізи
           </Button>

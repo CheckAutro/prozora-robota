@@ -1,4 +1,5 @@
 import { getServiceClient } from "@/lib/supabase/server";
+import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
 import type {
   AiConfidenceLevel,
   ExternalSourceCandidate,
@@ -90,7 +91,7 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
   const client = getServiceClient();
   const sources: ExternalSourceCandidate[] = [];
 
-  const [reviews, openFacts, ratings, signals] = await Promise.all([
+  const [reviews, openFacts, ratings, signals, companySources] = await Promise.all([
     client
       .from("reviews")
       .select("id, role_category, city, year")
@@ -118,6 +119,7 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
       .eq("status", "verified")
       .eq("is_public", true)
       .limit(8),
+    getPublicCompanyExternalSources(input.companySlug),
   ]);
 
   if (reviews.data && reviews.data.length > 0) {
@@ -167,6 +169,28 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
       snippet: cleanText(row.summary, 260),
       signal_type: "review",
       confidence: row.confidence === "high" || row.confidence === "low" ? row.confidence : "medium",
+    });
+  }
+
+  for (const source of companySources) {
+    sources.push({
+      source_name: source.sourceName,
+      source_url: source.sourceUrl ?? `https://prozora-robota.vercel.app/companies/${input.companySlug}`,
+      title: source.title ?? source.sourceType,
+      snippet: source.shortSummary,
+      signal_type:
+        source.sourceType === "reviews"
+          ? "review"
+          : source.sourceType === "rating"
+            ? "rating"
+            : source.sourceType === "vacancy"
+              ? "vacancy"
+              : source.sourceType === "company_page"
+                ? "company_page"
+                : source.sourceType === "article"
+                  ? "discussion"
+                  : "unknown",
+      confidence: source.confidence,
     });
   }
 

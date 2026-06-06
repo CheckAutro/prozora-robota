@@ -8,6 +8,7 @@ import type { SupabaseCompany, ReviewMetrics } from "@/lib/company-service";
 import type { ExternalRatingSummary } from "@/lib/external-ratings-service";
 import type { CompanyOpenFactSummary } from "@/lib/company-open-facts-service";
 import type { ExternalReviewSignalSummary } from "@/lib/external-review-signals-service";
+import type { ExternalCompanySourceSummary } from "@/lib/external/company-sources";
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("uk-UA").format(value);
@@ -34,6 +35,7 @@ function CompanyCardInner({
   industry,
   metrics,
   externalRatingSummary,
+  externalCompanySourceSummary,
   openFactSummary,
   externalReviewSignalSummary,
 }: {
@@ -43,6 +45,7 @@ function CompanyCardInner({
   industry: string | null;
   metrics?: ReviewMetrics | null;
   externalRatingSummary?: ExternalRatingSummary | null;
+  externalCompanySourceSummary?: ExternalCompanySourceSummary | null;
   openFactSummary?: CompanyOpenFactSummary | null;
   externalReviewSignalSummary?: ExternalReviewSignalSummary | null;
 }) {
@@ -61,8 +64,19 @@ function CompanyCardInner({
             : null,
       ].filter(Boolean).join(" · ")
     : null;
+  const sourceDetails = externalCompanySourceSummary
+    ? [
+        externalCompanySourceSummary.sourceCount > 0
+          ? `${externalCompanySourceSummary.sourceCount} ${formatSourceWord(externalCompanySourceSummary.sourceCount)}`
+          : null,
+        externalCompanySourceSummary.sources.length > 0
+          ? externalCompanySourceSummary.sources.slice(0, 3).join(" · ")
+          : null,
+      ].filter(Boolean).join(" · ")
+    : null;
   const hasReviews = Boolean(metrics && metrics.reviewCount > 0);
   const hasExternalRatings = Boolean(externalRatingSummary);
+  const hasExternalCompanySources = Boolean(externalCompanySourceSummary && externalCompanySourceSummary.sourceCount > 0);
   const hasOpenFacts = Boolean(openFactSummary && openFactSummary.factsCount > 0);
   const hasExternalReviewSignals = Boolean(
     externalReviewSignalSummary && externalReviewSignalSummary.signalCount > 0
@@ -73,7 +87,7 @@ function CompanyCardInner({
         `${openFactSummary?.factsCount ?? 0} вакансій`,
       ].filter(Boolean).join(" · ")
     : null;
-  const hasAnyExternalData = hasExternalRatings || hasOpenFacts || hasExternalReviewSignals;
+  const hasAnyExternalData = hasExternalRatings || hasOpenFacts || hasExternalReviewSignals || hasExternalCompanySources;
   const analysisText = hasReviews && hasAnyExternalData
     ? "є відгуки та відкриті джерела"
     : hasReviews
@@ -82,6 +96,8 @@ function CompanyCardInner({
         ? "є зовнішні сигнали, але мало відгуків"
         : hasOpenFacts
           ? "є дані з відкритих вакансій, але мало відгуків"
+          : hasExternalCompanySources
+            ? "є зовнішні джерела, але мало відгуків"
           : hasExternalRatings
             ? "є зовнішні оцінки, але мало відгуків"
             : "поки недостатньо даних";
@@ -145,6 +161,18 @@ function CompanyCardInner({
             <Star className="h-3.5 w-3.5 text-amber-400" />
             Відкриті джерела:
           </span>
+          {sourceDetails ? (
+            <span>{sourceDetails}</span>
+          ) : (
+            <span>поки немає підтверджених джерел</span>
+          )}
+        </p>
+
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ink-soft">
+          <span className="inline-flex items-center gap-1 font-semibold text-ink">
+            <Star className="h-3.5 w-3.5 text-brand-600" />
+            Оцінки з відкритих джерел:
+          </span>
           {externalDetails ? (
             <span>{externalDetails}</span>
           ) : (
@@ -198,12 +226,14 @@ export function CompanyCard({
   company,
   metrics,
   externalRatingSummary,
+  externalCompanySourceSummary,
   openFactSummary,
   externalReviewSignalSummary,
 }: {
   company: Company;
   metrics?: ReviewMetrics | null;
   externalRatingSummary?: ExternalRatingSummary | null;
+  externalCompanySourceSummary?: ExternalCompanySourceSummary | null;
   openFactSummary?: CompanyOpenFactSummary | null;
   externalReviewSignalSummary?: ExternalReviewSignalSummary | null;
 }) {
@@ -215,6 +245,7 @@ export function CompanyCard({
       industry={company.industry}
       metrics={metrics}
       externalRatingSummary={externalRatingSummary}
+      externalCompanySourceSummary={externalCompanySourceSummary}
       openFactSummary={openFactSummary}
       externalReviewSignalSummary={externalReviewSignalSummary}
     />
@@ -229,12 +260,14 @@ export function CompanyCardSlim({
   company,
   metrics,
   externalRatingSummary,
+  externalCompanySourceSummary,
   openFactSummary,
   externalReviewSignalSummary,
 }: {
   company: SupabaseCompany;
   metrics?: ReviewMetrics | null;
   externalRatingSummary?: ExternalRatingSummary | null;
+  externalCompanySourceSummary?: ExternalCompanySourceSummary | null;
   openFactSummary?: CompanyOpenFactSummary | null;
   externalReviewSignalSummary?: ExternalReviewSignalSummary | null;
 }) {
@@ -246,6 +279,7 @@ export function CompanyCardSlim({
       industry={company.industry ?? null}
       metrics={metrics}
       externalRatingSummary={externalRatingSummary}
+      externalCompanySourceSummary={externalCompanySourceSummary}
       openFactSummary={openFactSummary}
       externalReviewSignalSummary={externalReviewSignalSummary}
     />

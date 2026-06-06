@@ -311,3 +311,50 @@ export interface ExternalReviewSignal {
   createdAt: string;
   updatedAt: string;
 }
+
+// ── External company sources ────────────────────────────────────────────────
+// Unified external sources collected from public company pages, review sites,
+// vacancy pages, and articles. Separate from public.reviews and ratings.
+
+export type ExternalCompanySourceStatus =
+  | "needs_verification"
+  | "verified"
+  | "rejected";
+
+export type ExternalCompanySourceType =
+  | "reviews"
+  | "rating"
+  | "vacancy"
+  | "company_page"
+  | "article"
+  | "other";
+
+export type ExternalCompanySourceConfidence =
+  | "low"
+  | "medium"
+  | "high";
+
+export interface ExternalCompanySource {
+  id: string;
+  companySlug: string;
+  companyName: string;
+  sourceName: string;
+  sourceUrl: string | null;
+  sourceType: ExternalCompanySourceType;
+  title: string | null;
+  shortSummary: string;
+  positivePoints: string[];
+  negativePoints: string[];
+  neutralFacts: string[];
+  ratingValue: number | null;
+  ratingScale: number | null;
+  reviewsCount: number;
+  confidence: ExternalCompanySourceConfidence;
+  status: ExternalCompanySourceStatus;
+  isPublic: boolean;
+  sourceExcerpt: string | null;
+  collectedAt: string | null;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -7,6 +7,7 @@ import { slugifyCompanyName } from "@/lib/slugify";
 import { analyzeEmployer, type AnalyzeEmployerContext } from "@/lib/ai/analyze-employer";
 import { findEmployerExternalSources } from "@/lib/ai/external-source-finder";
 import { readVacancyUrl } from "@/lib/ai/safe-vacancy-url-reader";
+import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
 import type { AiAnalysisType, AiFetchStatus, ExternalSourceCandidate } from "@/lib/ai/types";
 import type { ExternalRating, ExternalReviewSignal, RiskLevel } from "@/lib/types";
 
@@ -128,13 +129,14 @@ async function loadContext(company: CompanyRow | null): Promise<{
   openFacts: AnalyzeEmployerContext["openFacts"];
   externalRatings: ExternalRating[];
   externalSignals: ExternalReviewSignal[];
+  externalCompanySources: AnalyzeEmployerContext["externalCompanySources"];
 }> {
   if (!company) {
-    return { reviews: [], openFacts: [], externalRatings: [], externalSignals: [] };
+    return { reviews: [], openFacts: [], externalRatings: [], externalSignals: [], externalCompanySources: [] };
   }
 
   const client = getServiceClient();
-  const [reviews, openFacts, ratings, signals] = await Promise.all([
+  const [reviews, openFacts, ratings, signals, companySources] = await Promise.all([
     client
       .from("reviews")
       .select("id, role_category, city, year, text")
@@ -164,6 +166,7 @@ async function loadContext(company: CompanyRow | null): Promise<{
       .eq("status", "verified")
       .eq("is_public", true)
       .limit(12),
+    getPublicCompanyExternalSources(company.slug),
   ]);
 
   return {
@@ -219,6 +222,7 @@ async function loadContext(company: CompanyRow | null): Promise<{
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     })),
+    externalCompanySources: companySources,
   };
 }
 
@@ -406,6 +410,7 @@ export async function POST(req: NextRequest) {
     openFacts: contextData.openFacts,
     externalRatings: contextData.externalRatings,
     externalSignals: contextData.externalSignals,
+    externalCompanySources: contextData.externalCompanySources,
     foundExternalSources: finder.sources,
   };
 

@@ -10,6 +10,7 @@ import {
 import { getPublicExternalRatingSummaries } from "@/lib/external-ratings-service";
 import { getPublicCompanyOpenFactsSummariesForCompanies } from "@/lib/company-open-facts-service";
 import { getPublicExternalReviewSignalSummariesForCompanies } from "@/lib/external-review-signals-service";
+import { getPublicCompanyExternalSourceSummariesForCompanies } from "@/lib/external/company-sources";
 
 export const metadata: Metadata = {
   title: "Відгуки про роботодавців — Прозора робота",
@@ -29,12 +30,14 @@ export default async function CompaniesPage() {
     externalRatingSummaries,
     openFactSummaries,
     externalReviewSignalSummaries,
+    externalCompanySourceSummaries,
   ] = await Promise.all([
     getCompanyList(),
     getPublishedReviewMetrics(),
     getPublicExternalRatingSummaries(),
     getPublicCompanyOpenFactsSummariesForCompanies(),
     getPublicExternalReviewSignalSummariesForCompanies(),
+    getPublicCompanyExternalSourceSummariesForCompanies(),
   ]);
 
   const cities = getCitiesFromList(companies);
@@ -48,6 +51,7 @@ export default async function CompaniesPage() {
         industries={industries}
         metrics={metrics}
         externalRatingSummaries={externalRatingSummaries}
+        externalCompanySourceSummaries={externalCompanySourceSummaries}
         openFactSummaries={openFactSummaries}
         externalReviewSignalSummaries={externalReviewSignalSummaries}
       />

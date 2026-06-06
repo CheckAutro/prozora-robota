@@ -8,8 +8,9 @@ import { Card } from "@/components/ui/Card";
 import { getAccessToken, signOut } from "@/lib/supabase/auth-client";
 import { AdminCompanyDiscoverySection } from "@/components/product/AdminCompanyDiscoverySection";
 import { AdminCompanyOpenFactsSection } from "@/components/product/AdminCompanyOpenFactsSection";
+import { AdminExternalCompanySourcesSection } from "@/components/product/AdminExternalCompanySourcesSection";
 
-type AdminToolKind = "company-discovery" | "open-facts";
+type AdminToolKind = "company-discovery" | "open-facts" | "external-sources";
 type AuthState = "loading" | "authed" | "forbidden" | "unauthed";
 
 const TOOL_COPY: Record<AdminToolKind, { title: string; description: string }> = {
@@ -20,6 +21,10 @@ const TOOL_COPY: Record<AdminToolKind, { title: string; description: string }> =
   "open-facts": {
     title: "Дані з відкритих вакансій",
     description: "Модерація company_open_facts. Публікація тільки після явної дії адміністратора.",
+  },
+  "external-sources": {
+    title: "Відкриті зовнішні джерела",
+    description: "Окремий контур для verified зовнішніх джерел, не повʼязаних із public.reviews.",
   },
 };
 
@@ -95,7 +100,7 @@ export function AdminDataToolPage({ tool }: { tool: AdminToolKind }) {
           <h1 className="font-display text-2xl font-bold text-ink">{copy.title}</h1>
           <p className="mt-1 max-w-2xl text-sm text-ink-soft">{copy.description}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2">
           <Button href="/admin" variant="outline" size="sm">
             <ArrowLeft className="h-4 w-4" /> До адмінки
           </Button>
@@ -107,8 +112,10 @@ export function AdminDataToolPage({ tool }: { tool: AdminToolKind }) {
 
       {tool === "company-discovery" ? (
         <AdminCompanyDiscoverySection accessToken={accessToken} />
-      ) : (
+      ) : tool === "open-facts" ? (
         <AdminCompanyOpenFactsSection accessToken={accessToken} />
+      ) : (
+        <AdminExternalCompanySourcesSection accessToken={accessToken} />
       )}
     </div>
   );

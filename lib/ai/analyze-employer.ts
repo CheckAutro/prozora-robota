@@ -4,7 +4,12 @@ import {
   MEDIUM_RISK,
   POSITIVE,
 } from "@/lib/vacancy-parser";
-import type { ExternalRating, ExternalReviewSignal, RiskLevel } from "@/lib/types";
+import type {
+  ExternalCompanySource,
+  ExternalRating,
+  ExternalReviewSignal,
+  RiskLevel,
+} from "@/lib/types";
 import type {
   AiAnalysisResult,
   AiConfidenceLevel,
@@ -50,6 +55,7 @@ export interface AnalyzeEmployerContext {
   openFacts: AiOpenFactContext[];
   externalRatings: ExternalRating[];
   externalSignals: ExternalReviewSignal[];
+  externalCompanySources: ExternalCompanySource[];
   foundExternalSources: ExternalSourceCandidate[];
 }
 
@@ -111,6 +117,7 @@ function hasEmployerExperienceContext(context: AnalyzeEmployerContext): boolean 
     context.internalReviews.length > 0 ||
     context.externalRatings.length > 0 ||
     context.externalSignals.length > 0 ||
+    context.externalCompanySources.some((source) => ["reviews", "rating", "article"].includes(source.sourceType)) ||
     hasReviewRatingOrDiscussionSource(context)
   );
 }
@@ -143,6 +150,7 @@ function dataLevel(context: AnalyzeEmployerContext): AiDataLevel {
     concreteOpenFacts.length +
     context.externalRatings.length +
     context.externalSignals.length +
+    context.externalCompanySources.filter((source) => ["reviews", "rating", "article"].includes(source.sourceType)).length +
     context.foundExternalSources.filter((source) => source.signal_type !== "company_page").length +
     (hasConcreteVacancyData ? 2 : textPresent ? 1 : 0);
   if (
@@ -267,6 +275,7 @@ function buildSystemPrompt(): string {
     "If data is insufficient, say insufficient data.",
     "AI analysis is not a review and does not affect ratings.",
     "Separate: 1) internal reviews, 2) open facts, 3) external ratings, 4) external signals, 5) vacancy text, 6) AI conclusion.",
+    "Also consider verified external company sources separately from internal reviews.",
   ].join(" ");
 }
 
@@ -289,6 +298,7 @@ function buildUserPrompt(context: AnalyzeEmployerContext): string {
         open_facts: "number",
         external_ratings: "number",
         external_signals: "number",
+        external_company_sources: "number",
         found_external_sources: "number",
         vacancy_text: "boolean",
       },
@@ -404,6 +414,7 @@ function buildFallbackAnalysis(context: AnalyzeEmployerContext, fallbackReason: 
       open_facts: context.openFacts.length,
       external_ratings: context.externalRatings.length,
       external_signals: context.externalSignals.length,
+      external_company_sources: context.externalCompanySources.length,
       found_external_sources: context.foundExternalSources.length,
       vacancy_text: textPresent,
     },
