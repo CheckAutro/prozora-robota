@@ -279,7 +279,37 @@ function buildSystemPrompt(): string {
   ].join(" ");
 }
 
+function sourceLanguageFromAdminNote(value: string | null | undefined): "uk" | "ru" | "en" | "unknown" {
+  const match = String(value ?? "").match(/Original language:\s*(uk|ru|en|unknown)/i);
+  return match ? (match[1].toLowerCase() as "uk" | "ru" | "en" | "unknown") : "unknown";
+}
+
 function buildUserPrompt(context: AnalyzeEmployerContext): string {
+  const controlledContext = {
+    ...context,
+    externalCompanySources: context.externalCompanySources.map((source) => ({
+      source_name: source.sourceName,
+      source_url: source.sourceUrl,
+      source_language: sourceLanguageFromAdminNote(source.adminNote),
+      source_type: source.sourceType,
+      confidence: source.confidence,
+      short_summary_uk: source.shortSummary,
+      positive_points_uk: source.positivePoints.slice(0, 4),
+      negative_points_uk: source.negativePoints.slice(0, 4),
+      neutral_facts_uk: source.neutralFacts.slice(0, 5),
+      rating_value: source.ratingValue,
+      rating_scale: source.ratingScale,
+      reviews_count: source.reviewsCount,
+    })),
+    foundExternalSources: context.foundExternalSources.map((source) => ({
+      source_name: source.source_name,
+      source_url: source.source_url,
+      source_language: source.source_language ?? "unknown",
+      source_type: source.signal_type,
+      confidence: source.confidence,
+      short_summary_uk: source.snippet,
+    })),
+  };
   return JSON.stringify({
     schema: {
       summary: "string",
@@ -311,7 +341,7 @@ function buildUserPrompt(context: AnalyzeEmployerContext): string {
       "If data is insufficient, return risk_level unknown, confidence_level low, and risk_score null.",
       "Recommendations must be practical: what to clarify, what to ask in writing, what to verify.",
     ],
-    context,
+    context: controlledContext,
   });
 }
 

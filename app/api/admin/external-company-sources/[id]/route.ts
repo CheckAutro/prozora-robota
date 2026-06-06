@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth-server";
+import { primaryTextLooksUkrainian } from "@/lib/external/source-normalizer";
 import type { ExternalCompanySourceStatus, ExternalCompanySourceType } from "@/lib/types";
 
 async function checkAdminAuth(
@@ -123,7 +124,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (update.is_public === true) {
       const { data: current, error: currentError } = await client
         .from("external_company_sources")
-        .select("status, source_url")
+        .select("status, source_url, short_summary, positive_points, negative_points, neutral_facts")
         .eq("id", id)
         .single();
       if (currentError || !current) {
@@ -135,6 +136,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       if (!String(update.source_url ?? currentRow.source_url ?? "").trim()) {
         return NextResponse.json({ error: "source_url is required before publishing external company sources" }, { status: 422 });
+      }
+      const publicText = [
+        update.short_summary ?? (current as Record<string, unknown>).short_summary,
+        ...parseArray(update.positive_points ?? (current as Record<string, unknown>).positive_points),
+        ...parseArray(update.negative_points ?? (current as Record<string, unknown>).negative_points),
+        ...parseArray(update.neutral_facts ?? (current as Record<string, unknown>).neutral_facts),
+      ].join(" ");
+      if (!primaryTextLooksUkrainian(publicText)) {
+        return NextResponse.json(
+          { error: "Перед публікацією додайте українське коротке узагальнення." },
+          { status: 422 }
+        );
       }
     }
 

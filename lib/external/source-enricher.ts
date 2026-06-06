@@ -1,6 +1,12 @@
 import type { ExternalCompanySourceConfidence, ExternalCompanySourceType } from "@/lib/types";
 import { readExternalSourceUrl, type SafeSourceFetchStatus } from "./source-fetcher";
-import { inferSourceTypeFromContent, sanitizeText, sourceNameFromUrl } from "./source-normalizer";
+import {
+  detectSourceLanguage,
+  inferSourceTypeFromContent,
+  normalizeExternalSourceForPublic,
+  sanitizeText,
+  sourceNameFromUrl,
+} from "./source-normalizer";
 
 export interface ExternalSourceEnrichmentInput {
   sourceUrl: string;
@@ -67,11 +73,6 @@ function confidenceFromText(text: string, status: SafeSourceFetchStatus): Extern
   return "low";
 }
 
-function shortSummary(title: string | null, description: string | null, text: string | null): string {
-  const base = [title, description, text ? text.slice(0, 240) : null].filter(Boolean).join(" — ");
-  return compactText(base || "Зовнішнє джерело про компанію", 800);
-}
-
 export async function enrichExternalCompanySourceUrl(
   input: ExternalSourceEnrichmentInput
 ): Promise<ExternalSourceEnrichmentResult> {
@@ -86,28 +87,43 @@ export async function enrichExternalCompanySourceUrl(
   const sourceType = input.sourceType ?? inferSourceTypeFromContent(fetchResult.title ?? null, fetchResult.description ?? null, input.sourceUrl);
   const points = detectPoints(sourceText || input.sourceUrl);
   const rating = extractRating(sourceText);
+  const sourceLanguage = detectSourceLanguage({
+    title: fetchResult.title ?? null,
+    snippet: `${fetchResult.description ?? ""} ${fetchResult.text ?? ""}`,
+    sourceUrl: input.sourceUrl,
+  });
+  const normalized = normalizeExternalSourceForPublic({
+    title: fetchResult.title ?? null,
+    snippet: `${fetchResult.description ?? ""} ${fetchResult.text ?? ""}`,
+    sourceUrl: input.sourceUrl,
+    sourceType,
+    sourceLanguage,
+  });
   const short = fetchResult.status === "success"
-    ? shortSummary(fetchResult.title ?? null, fetchResult.description ?? null, fetchResult.text ?? null)
-    : compactText(`${normalizedName} — ${fetchResult.reason ?? fetchResult.status}`, 300);
+    ? normalized.ukrainianShortSummary
+    : compactText(`${normalized.ukrainianTitle} — ${fetchResult.reason ?? fetchResult.status}`, 300);
+  const adminNotes = [
+    `Original language: ${normalized.sourceLanguage}`,
+    fetchResult.status === "success" ? null : `Fetch blocked/captcha/timeout: ${fetchResult.reason ?? fetchResult.status}`,
+  ].filter(Boolean);
 
   return {
     status: fetchResult.status,
     sourceUrl: fetchResult.url,
     sourceName: normalizedName,
     sourceType,
-    title: fetchResult.title ?? null,
+    title: normalized.ukrainianTitle || fetchResult.title || null,
     description: fetchResult.description ?? null,
     shortSummary: short,
-    positivePoints: points.positive,
-    negativePoints: points.negative,
-    neutralFacts: points.neutral,
+    positivePoints: normalized.positivePointsUk.length ? normalized.positivePointsUk : points.positive,
+    negativePoints: normalized.negativePointsUk.length ? normalized.negativePointsUk : points.negative,
+    neutralFacts: normalized.neutralFactsUk.length ? normalized.neutralFactsUk : points.neutral,
     ratingValue: rating.ratingValue,
     ratingScale: rating.ratingScale,
     reviewsCount: rating.reviewsCount,
     confidence: confidenceFromText(sourceText || short, fetchResult.status),
-    sourceExcerpt: fetchResult.text ? fetchResult.text.slice(0, 1200) : null,
-    adminNote: fetchResult.status === "success" ? null : `Fetch blocked/captcha/timeout: ${fetchResult.reason ?? fetchResult.status}`,
+    sourceExcerpt: fetchResult.text ? fetchResult.text.slice(0, 800) : null,
+    adminNote: adminNotes.join("; ") || null,
     warning: fetchResult.status === "success" ? null : fetchResult.reason ?? fetchResult.status,
   };
 }
-

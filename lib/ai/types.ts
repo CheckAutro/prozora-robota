@@ -20,6 +20,7 @@ export interface ExternalSourceCandidate {
   snippet: string;
   signal_type: ExternalSourceSignalType;
   confidence: AiConfidenceLevel;
+  source_language?: "uk" | "ru" | "en" | "unknown";
 }
 
 export interface AiSourceBreakdown {

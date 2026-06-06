@@ -3,6 +3,8 @@ import type {
   ExternalCompanySourceType,
 } from "@/lib/types";
 
+export type ExternalSourceLanguage = "uk" | "ru" | "en" | "unknown";
+
 const ALLOWED_HOSTS = [
   "work.ua",
   "robota.ua",
@@ -103,4 +105,127 @@ export function normalizeConfidence(value: unknown): ExternalCompanySourceConfid
 export function sanitizeText(value: unknown, limit = 800): string {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+export function detectSourceLanguage(input: {
+  title?: string | null;
+  snippet?: string | null;
+  sourceUrl?: string | null;
+}): ExternalSourceLanguage {
+  const text = `${input.title ?? ""} ${input.snippet ?? ""} ${input.sourceUrl ?? ""}`.toLowerCase();
+  if (/відгуки|працівник|роботодавець|співбесіда|оформлення|керівництво|зарплата|умови/.test(text)) {
+    return "uk";
+  }
+  if (/отзывы сотрудников|отзывы о работодателе|работодатель|сотрудников|руководство|начальство|соискатель|уволили|жалоба|зарплата|условия|график/.test(text)) {
+    return "ru";
+  }
+  if (/reviews|employees|salary|interview|company reviews|employer|workplace/.test(text)) {
+    return "en";
+  }
+  return "unknown";
+}
+
+function includesAny(text: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function uniqueLimited(items: string[], limit = 6): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const value = sanitizeText(item, 220);
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+export function normalizeExternalSourceForPublic(input: {
+  title?: string | null;
+  snippet?: string | null;
+  sourceUrl?: string | null;
+  sourceType?: ExternalCompanySourceType | null;
+  sourceLanguage?: ExternalSourceLanguage | null;
+}): {
+  ukrainianTitle: string;
+  ukrainianShortSummary: string;
+  positivePointsUk: string[];
+  negativePointsUk: string[];
+  neutralFactsUk: string[];
+  sourceLanguage: ExternalSourceLanguage;
+} {
+  const sourceLanguage = input.sourceLanguage ?? detectSourceLanguage(input);
+  const sourceType = input.sourceType ?? inferSourceTypeFromContent(input.title, input.snippet, input.sourceUrl ?? "");
+  const text = `${input.title ?? ""} ${input.snippet ?? ""} ${input.sourceUrl ?? ""}`.toLowerCase();
+  const neutralFacts: string[] = [];
+  const positivePoints: string[] = [];
+  const negativePoints: string[] = [];
+
+  if (sourceType === "reviews" || includesAny(text, [/відгук|отзыв|reviews?/])) {
+    neutralFacts.push("Є зовнішні відгуки працівників про компанію.");
+  }
+  if (sourceType === "rating" || includesAny(text, [/рейтинг|оцінк|оценк|rating|stars?/])) {
+    neutralFacts.push("У джерелі згадується зовнішня оцінка компанії.");
+  }
+  if (sourceType === "vacancy" || includesAny(text, [/ваканс|робота|работа|job|vacancy/])) {
+    neutralFacts.push("У джерелі згадуються вакансії або робота в компанії.");
+  }
+  if (includesAny(text, [/зарплат|salary|оплат|виплат/])) {
+    neutralFacts.push("У джерелі згадується зарплата або оплата.");
+  }
+  if (includesAny(text, [/руководство|начальство|керівниц|management|manager/])) {
+    neutralFacts.push("У джерелі згадується управління або керівництво.");
+  }
+  if (includesAny(text, [/условия|умови|график|графік|schedule|workload/])) {
+    neutralFacts.push("У джерелі згадуються умови або графік роботи.");
+  }
+  if (includesAny(text, [/офіцій|оформл|договір|contract|employment/])) {
+    positivePoints.push("Є згадка про оформлення або договірні умови.");
+  }
+  if (includesAny(text, [/бонус|benefit|переваг|соцпакет|команда|positive|добре|хорош/])) {
+    positivePoints.push("Є позитивна згадка про умови, команду або переваги.");
+  }
+  if (includesAny(text, [/жалоб|скарг|негатив|плохо|поган|затрим|штраф|уволили|конфлікт|overload|bad|negative/])) {
+    negativePoints.push("Є негативна згадка або скарга.");
+  }
+
+  if (neutralFacts.length === 0 && positivePoints.length === 0 && negativePoints.length === 0) {
+    neutralFacts.push("Є зовнішнє джерело, яке потребує ручної перевірки модератором.");
+  }
+
+  const titleByType: Record<ExternalCompanySourceType, string> = {
+    reviews: "Зовнішні відгуки про компанію",
+    rating: "Зовнішня оцінка компанії",
+    vacancy: "Відкрита вакансія або сторінка роботи",
+    company_page: "Сторінка компанії у відкритому джерелі",
+    article: "Публікація про компанію",
+    other: "Зовнішнє джерело про компанію",
+  };
+  const ukrainianTitle = titleByType[sourceType] ?? "Зовнішнє джерело про компанію";
+  const ukrainianShortSummary = uniqueLimited(
+    [...neutralFacts, ...negativePoints, ...positivePoints],
+    3
+  ).join(" ");
+
+  return {
+    ukrainianTitle,
+    ukrainianShortSummary: ukrainianShortSummary || "Є зовнішнє джерело про компанію, яке потребує модерації.",
+    positivePointsUk: uniqueLimited(positivePoints, 4),
+    negativePointsUk: uniqueLimited(negativePoints, 4),
+    neutralFactsUk: uniqueLimited(neutralFacts, 5),
+    sourceLanguage,
+  };
+}
+
+export function primaryTextLooksUkrainian(value: string | null | undefined): boolean {
+  const text = sanitizeText(value ?? "", 800).toLowerCase();
+  if (!text) return false;
+  if (/отзывы|сотрудник|работодатель|руководство|начальство|соискатель|уволили|жалоба|условия|график/.test(text)) {
+    return false;
+  }
+  return /відгук|працівник|роботодав|джерел|згаду|компан|оцінк|умови|зарплат|оплат|керівниц|потріб|модерац/.test(text);
 }

@@ -84,6 +84,19 @@ function isValidUrl(value: string): boolean {
   }
 }
 
+function originalLanguageFromNote(value: string | null | undefined): "uk" | "ru" | "en" | "unknown" {
+  const match = String(value ?? "").match(/Original language:\s*(uk|ru|en|unknown)/i);
+  return match ? (match[1].toLowerCase() as "uk" | "ru" | "en" | "unknown") : "unknown";
+}
+
+function originalLanguageLabel(value: string | null | undefined): string {
+  const language = originalLanguageFromNote(value);
+  if (language === "uk") return "мова: українська";
+  if (language === "ru") return "мова: російська";
+  if (language === "en") return "мова: англійська";
+  return "мова: не визначено";
+}
+
 function filterItems(items: ExternalCompanySource[], query: { search: string; source: string; status: string; type: string }) {
   const search = query.search.trim().toLowerCase();
   return items.filter((item) => {
@@ -367,7 +380,8 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Не вдалося виконати bulk-дію.");
-      setMessage(`Оновлено: ${data.updated_count ?? 0}, пропущено: ${data.skipped_count ?? 0}.`);
+      const firstError = Array.isArray(data.errors) && data.errors[0]?.error ? ` ${data.errors[0].error}` : "";
+      setMessage(`Оновлено: ${data.updated_count ?? 0}, пропущено: ${data.skipped_count ?? 0}.${firstError}`);
       setPendingBulkAction(null);
       setSelectedIds(new Set());
       await load();
@@ -400,6 +414,7 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
           <li>• Додайте URL вручну у форму нижче.</li>
           <li>• Або запустіть backfill з існуючих даних командою <code className="rounded bg-white px-1.5 py-0.5 text-xs text-ink">npm run backfill:external-sources</code>.</li>
           <li>• На сайті показуються тільки <strong>verified + is_public</strong>.</li>
+          <li>• Іншомовні джерела показуються на сайті лише як українське коротке узагальнення після модерації.</li>
         </ul>
       </div>
 
@@ -467,7 +482,7 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
                 {discoverResult.candidates.slice(0, 3).map((candidate) => (
                   <div key={candidate.id} className="rounded-lg border border-ink/[0.06] bg-ink/[0.02] px-3 py-2 text-sm">
                     <p className="font-medium text-ink">{candidate.sourceName}</p>
-                    <p className="text-xs text-ink-muted">{candidate.title ?? "Без title"} · {candidate.sourceType}</p>
+                    <p className="text-xs text-ink-muted">{candidate.title ?? "Без title"} · {candidate.sourceType} · {originalLanguageLabel(candidate.adminNote)}</p>
                     <p className="line-clamp-2 text-xs leading-relaxed text-ink-soft">{candidate.shortSummary}</p>
                   </div>
                 ))}
@@ -646,6 +661,9 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
                         {item.isPublic && <span className="rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">public</span>}
                         <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-2 py-0.5 text-[11px] font-medium text-ink-soft">
                           {TYPE_META[item.sourceType]}
+                        </span>
+                        <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-2 py-0.5 text-[11px] font-medium text-ink-soft">
+                          {originalLanguageLabel(item.adminNote)}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-ink-muted">

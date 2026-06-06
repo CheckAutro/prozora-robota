@@ -1,6 +1,10 @@
 import { getServiceClient } from "@/lib/supabase/server";
 import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
 import { searchExternalSourcesWithWarnings } from "@/lib/external/search-provider";
+import {
+  detectSourceLanguage,
+  normalizeExternalSourceForPublic,
+} from "@/lib/external/source-normalizer";
 import type {
   ExternalSourceCandidate,
   ExternalSourceSignalType,
@@ -39,6 +43,11 @@ function sourceNameFromUrl(value: string): string {
   if (host.includes("djinni.co")) return "Djinni";
   if (host.includes("grc.ua")) return "GRC.ua";
   return host || "Зовнішнє джерело";
+}
+
+function languageFromAdminNote(value: string | null | undefined): "uk" | "ru" | "en" | "unknown" {
+  const match = String(value ?? "").match(/Original language:\s*(uk|ru|en|unknown)/i);
+  return match ? (match[1].toLowerCase() as "uk" | "ru" | "en" | "unknown") : "unknown";
 }
 
 function uniqueSources(sources: ExternalSourceCandidate[]): ExternalSourceCandidate[] {
@@ -108,6 +117,7 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
       snippet: `Є ${reviews.data.length} прикладів опублікованих відгуків у контрольованій базі.`,
       signal_type: "review",
       confidence: "high",
+      source_language: "uk",
     });
   }
 
@@ -120,6 +130,7 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
       snippet: cleanText(row.raw_excerpt, 260) || "Є підтверджений відкритий факт з вакансії.",
       signal_type: "vacancy",
       confidence: "high",
+      source_language: "uk",
     });
   }
 
@@ -135,6 +146,7 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
       snippet: `Оцінка: ${rating}; кількість оцінок: ${Number(row.reviews_count ?? 0)}.`,
       signal_type: "rating",
       confidence: "high",
+      source_language: "uk",
     });
   }
 
@@ -147,6 +159,7 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
       snippet: cleanText(row.summary, 260),
       signal_type: "review",
       confidence: row.confidence === "high" || row.confidence === "low" ? row.confidence : "medium",
+      source_language: "uk",
     });
   }
 
@@ -169,6 +182,7 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
                   ? "discussion"
                   : "unknown",
       confidence: source.confidence,
+      source_language: languageFromAdminNote(source.adminNote),
     });
   }
 
@@ -196,9 +210,25 @@ function inferSentiment(source: ExternalSourceCandidate): string {
 }
 
 function signalSummary(source: ExternalSourceCandidate): string {
-  const snippet = source.snippet || source.title;
-  const summary = `Знайдено потенційний зовнішній сигнал: ${snippet}`;
-  return summary.slice(0, 300);
+  const normalized = normalizeExternalSourceForPublic({
+    title: source.title,
+    snippet: source.snippet,
+    sourceUrl: source.source_url,
+    sourceLanguage: source.source_language,
+    sourceType:
+      source.signal_type === "review"
+        ? "reviews"
+        : source.signal_type === "rating"
+          ? "rating"
+          : source.signal_type === "vacancy"
+            ? "vacancy"
+            : source.signal_type === "company_page"
+              ? "company_page"
+              : source.signal_type === "discussion"
+                ? "article"
+                : "other",
+  });
+  return normalized.ukrainianShortSummary.slice(0, 300);
 }
 
 async function saveUnverifiedSignals(
@@ -231,7 +261,7 @@ async function saveUnverifiedSignals(
       confidence: source.confidence,
       status: "needs_verification",
       is_public: false,
-      admin_note: `AI external search candidate. signal_type=${source.signal_type}; title=${source.title}; snippet=${source.snippet}`,
+      admin_note: `AI external search candidate. Original language: ${source.source_language ?? "unknown"}; signal_type=${source.signal_type}; title=${source.title}; snippet=${source.snippet}`,
     });
     if (error && error.code !== "23505" && process.env.NODE_ENV === "development") {
       console.warn("[external-source-finder] signal save skipped:", error.message);
@@ -255,11 +285,22 @@ export async function findEmployerExternalSources(input: FinderInput): Promise<F
 
   const searchSources: ExternalSourceCandidate[] = searched.results.map((item) => {
     const sourceName = sourceNameFromUrl(item.url);
+    const language = detectSourceLanguage({
+      title: item.title,
+      snippet: item.snippet,
+      sourceUrl: item.url,
+    });
+    const normalized = normalizeExternalSourceForPublic({
+      title: item.title,
+      snippet: item.snippet,
+      sourceUrl: item.url,
+      sourceLanguage: language,
+    });
     return {
       source_name: sourceName,
       source_url: item.url,
-      title: item.title,
-      snippet: item.snippet,
+      title: normalized.ukrainianTitle,
+      snippet: normalized.ukrainianShortSummary,
       signal_type: inferSignalType(item.title, item.snippet, item.url),
       confidence:
         /відгук|відгуки|оцінк|рейтинг|reviews?|rating/.test(`${item.title} ${item.snippet}`.toLowerCase())
@@ -267,6 +308,7 @@ export async function findEmployerExternalSources(input: FinderInput): Promise<F
           : ["DOU", "Djinni", "Work.ua", "Robota.ua"].includes(sourceName)
             ? "medium"
             : "low",
+      source_language: normalized.sourceLanguage,
     };
   });
 

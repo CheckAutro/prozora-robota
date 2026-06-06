@@ -8,7 +8,13 @@ import {
   externalSearchIsEnabled,
   normalizeSearchResultUrl,
 } from "@/lib/external/search-provider";
-import { inferSourceTypeFromContent, sanitizeText, sourceNameFromUrl } from "@/lib/external/source-normalizer";
+import {
+  detectSourceLanguage,
+  inferSourceTypeFromContent,
+  normalizeExternalSourceForPublic,
+  sanitizeText,
+  sourceNameFromUrl,
+} from "@/lib/external/source-normalizer";
 import { upsertExternalCompanySource, externalCompanySourcesTableMissing } from "@/lib/external/company-sources";
 import type { ExternalCompanySourceType } from "@/lib/types";
 
@@ -241,16 +247,29 @@ function buildKnownCandidate(row: KnownSourceRow): CandidatePayload | null {
   const aliases = COMPANY_ALIASES[companySlug] ?? [];
   const sourceName = clean(row.source_name ?? sourceNameFromUrl(sourceUrl), 100) || sourceNameFromUrl(sourceUrl);
   const title = clean(row.title, 240) || sourceName;
-  const shortSummary = buildShortSummary(row);
   const sourceType = buildKnownSourceType(row.source_type, sourceName, sourceUrl, title);
-  const confidence = confidenceFromText(companyName, sourceUrl, title, shortSummary, aliases);
-  const positivePoints = /офіцій|оформл|бронюван/.test(shortSummary.toLowerCase())
+  const rawSummary = buildShortSummary(row);
+  const sourceLanguage = detectSourceLanguage({
+    title,
+    snippet: rawSummary,
+    sourceUrl,
+  });
+  const normalized = normalizeExternalSourceForPublic({
+    title,
+    snippet: rawSummary,
+    sourceUrl,
+    sourceType,
+    sourceLanguage,
+  });
+  const shortSummary = normalized.ukrainianShortSummary;
+  const confidence = confidenceFromText(companyName, sourceUrl, title, rawSummary, aliases);
+  const positivePoints = normalized.positivePointsUk.length ? normalized.positivePointsUk : /офіцій|оформл|бронюван/.test(shortSummary.toLowerCase())
     ? ["Згадується офіційне оформлення або бронювання."]
     : [];
-  const negativePoints = /затрим|штраф|поган|негатив|перевантаж/.test(shortSummary.toLowerCase())
+  const negativePoints = normalized.negativePointsUk.length ? normalized.negativePointsUk : /затрим|штраф|поган|негатив|перевантаж/.test(shortSummary.toLowerCase())
     ? ["Є ризикова або негативна згадка."]
     : [];
-  const neutralFacts = positivePoints.length === 0 && negativePoints.length === 0
+  const neutralFacts = normalized.neutralFactsUk.length ? normalized.neutralFactsUk : positivePoints.length === 0 && negativePoints.length === 0
     ? ["Є коротке узагальнення з відкритого джерела."]
     : [];
 
@@ -260,7 +279,7 @@ function buildKnownCandidate(row: KnownSourceRow): CandidatePayload | null {
     source_name: sourceName,
     source_url: sourceUrl,
     source_type: sourceType,
-    title,
+    title: normalized.ukrainianTitle || title,
     short_summary: shortSummary,
     positive_points: positivePoints,
     negative_points: negativePoints,
@@ -271,9 +290,9 @@ function buildKnownCandidate(row: KnownSourceRow): CandidatePayload | null {
     confidence,
     status: "needs_verification",
     is_public: false,
-    source_excerpt: clean(row.source_excerpt, 1200) || null,
+    source_excerpt: clean(row.source_excerpt ?? rawSummary, 800) || null,
     collected_at: new Date().toISOString(),
-    admin_note: `known source import (${row.source_type ?? "unknown"})`,
+    admin_note: `known source import (${row.source_type ?? "unknown"}); Original language: ${normalized.sourceLanguage}`,
   };
 }
 
@@ -535,6 +554,15 @@ async function main() {
     errors: 0,
   };
   const warnings: string[] = [];
+  const sampleCandidates: Array<{
+    companySlug: string;
+    sourceName: string;
+    sourceType: ExternalCompanySourceType;
+    confidence: string;
+    title: string | null;
+    shortSummary: string;
+    adminNote: string | null;
+  }> = [];
 
   if (args.source === "search" && !searchEnabled) {
     console.log(externalSearchDisabledMessage());
@@ -654,6 +682,18 @@ async function main() {
           companyStats.blocked += discovered.stats.blocked;
           companyStats.errors += discovered.stats.errors;
           warnings.push(...discovered.warnings);
+          for (const source of discovered.sources.slice(0, 5)) {
+            if (sampleCandidates.length >= 10) break;
+            sampleCandidates.push({
+              companySlug: source.companySlug,
+              sourceName: source.sourceName,
+              sourceType: source.sourceType,
+              confidence: source.confidence,
+              title: source.title,
+              shortSummary: source.shortSummary,
+              adminNote: source.adminNote,
+            });
+          }
         }
 
         if (args.source === "known" || args.source === "all") {
@@ -698,6 +738,7 @@ async function main() {
     blocked: stats.blocked,
     errors: stats.errors,
     warnings: warnings.slice(0, 20),
+    sampleCandidates: args.dryRun ? sampleCandidates : undefined,
     dryRunMessage: args.dryRun ? "dry run: no rows were written" : undefined,
   }, null, 2));
 }

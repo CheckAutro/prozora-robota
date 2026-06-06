@@ -9,7 +9,9 @@ import type {
   ExternalCompanySourceType,
 } from "@/lib/types";
 import {
+  detectSourceLanguage,
   inferSourceTypeFromContent,
+  normalizeExternalSourceForPublic,
   sanitizeText,
   sourceNameFromUrl,
 } from "./source-normalizer";
@@ -83,6 +85,16 @@ const SOCIAL_HOST_PATTERNS = [
   /(^|\.)vk\.com$/i,
 ];
 
+const EXTERNAL_REVIEW_SITE_PATTERNS = [
+  /(^|\.)vnutri\.org$/i,
+  /(^|\.)pravda-sotrudnikov\./i,
+  /(^|\.)otrude\./i,
+  /(^|\.)orabote\./i,
+  /(^|\.)neorabote\./i,
+  /(^|\.)otzyvru\./i,
+  /(^|\.)otzovik\./i,
+];
+
 function cleanText(value: unknown, limit = 800): string {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, limit);
@@ -99,6 +111,11 @@ function hostFromUrl(value: string): string {
 function isSocialHost(url: string): boolean {
   const host = hostFromUrl(url);
   return SOCIAL_HOST_PATTERNS.some((pattern) => pattern.test(host));
+}
+
+function isExternalReviewHost(url: string): boolean {
+  const host = hostFromUrl(url);
+  return EXTERNAL_REVIEW_SITE_PATTERNS.some((pattern) => pattern.test(host));
 }
 
 function normalizeCandidateUrl(url: string): string | null {
@@ -124,7 +141,10 @@ function buildQueries(companyName: string, aliases: string[] = []): string[] {
   const baseNames = unique([companyName, ...aliases], (value) => normalizeCompanyName(value));
   const templates = [
     "{name} відгуки працівників",
+    "{name} відгуки про роботодавця",
     "{name} отзывы сотрудников",
+    "{name} отзывы о работодателе",
+    "{name} работа отзывы",
     "{name} робота відгуки",
     "{name} work.ua",
     "{name} robota.ua",
@@ -164,6 +184,14 @@ function candidateConfidence(companyName: string, aliases: string[], candidate: 
   if (hitCount >= 2) return "medium";
   if (/work\.ua|robota\.ua|dou\.ua|djinni\.co|indeed\.com|glassdoor\.com/.test(candidate.url)) return "medium";
   return "low";
+}
+
+function capConfidenceForSource(
+  confidence: ExternalCompanySourceConfidence,
+  url: string
+): ExternalCompanySourceConfidence {
+  if (!isExternalReviewHost(url)) return confidence;
+  return confidence === "high" ? "medium" : confidence;
 }
 
 function inferTopicAndFacts(candidate: { title: string; snippet: string; url: string }): {
@@ -371,36 +399,50 @@ export async function discoverExternalSourcesForCompany(
         }
       }
 
-      const confidence = candidateConfidence(companyName, aliases, {
+      const rawConfidence = candidateConfidence(companyName, aliases, {
         title: result.title,
         snippet: result.snippet,
         url: normalizedUrl,
       });
+      const confidence = capConfidenceForSource(rawConfidence, normalizedUrl);
       const { sourceType, positivePoints, negativePoints, neutralFacts } = inferTopicAndFacts({
         title: result.title,
         snippet: result.snippet,
         url: normalizedUrl,
       });
-      const shortSummary = sanitizeText(
-        `${result.title} — ${result.snippet}`.trim() || "Зовнішнє джерело про компанію",
-        800
-      );
+      const sourceLanguage = detectSourceLanguage({
+        title: result.title,
+        snippet: result.snippet,
+        sourceUrl: normalizedUrl,
+      });
+      const normalized = normalizeExternalSourceForPublic({
+        title: result.title,
+        snippet: result.snippet,
+        sourceUrl: normalizedUrl,
+        sourceType,
+        sourceLanguage,
+      });
+      const adminNotes = [
+        `discovery query: ${query}`,
+        `Original language: ${normalized.sourceLanguage}`,
+        isExternalReviewHost(normalizedUrl) ? "Needs manual review: external review site" : null,
+      ].filter(Boolean);
       const candidate: CompanySourceCandidate = {
         companySlug,
         companyName,
         sourceName: result.sourceName || sourceNameFromUrl(normalizedUrl),
         sourceUrl: normalizedUrl,
         sourceType,
-        title: result.title,
-        shortSummary,
-        positivePoints,
-        negativePoints,
-        neutralFacts,
+        title: normalized.ukrainianTitle,
+        shortSummary: sanitizeText(normalized.ukrainianShortSummary, 800),
+        positivePoints: normalized.positivePointsUk.length ? normalized.positivePointsUk : positivePoints,
+        negativePoints: normalized.negativePointsUk.length ? normalized.negativePointsUk : negativePoints,
+        neutralFacts: normalized.neutralFactsUk.length ? normalized.neutralFactsUk : neutralFacts,
         confidence,
         status: "needs_verification",
         isPublic: false,
-        sourceExcerpt: result.snippet.slice(0, 1200),
-        adminNote: `discovery query: ${query}`,
+        sourceExcerpt: sanitizeText(`${result.title} — ${result.snippet}`, 800),
+        adminNote: adminNotes.join("; "),
         collectedAt: new Date().toISOString(),
       };
 
