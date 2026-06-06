@@ -15,6 +15,11 @@ interface ProviderConfig {
   model: string;
 }
 
+interface RequestOptions {
+  includeResponseFormat: boolean;
+  allowResponseFormatRetry: boolean;
+}
+
 function trimEnv(value: string | undefined | null): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -40,7 +45,20 @@ export function getEmployerAiProviderName(): string | null {
   return getProviderConfig()?.provider ?? null;
 }
 
-function buildRequestBody(config: ProviderConfig, input: PromptInput): Record<string, unknown> {
+function getApiPath(apiUrl: string): string {
+  try {
+    const parsed = new URL(apiUrl);
+    return parsed.pathname || "/";
+  } catch {
+    return apiUrl.replace(/^https?:\/\/[^/]+/, "") || "/";
+  }
+}
+
+function buildRequestBody(
+  config: ProviderConfig,
+  input: PromptInput,
+  options: RequestOptions
+): Record<string, unknown> {
   if (config.apiUrl.includes("/responses")) {
     return {
       model: config.model,
@@ -53,20 +71,25 @@ function buildRequestBody(config: ProviderConfig, input: PromptInput): Record<st
     };
   }
 
-  return {
+  const body: Record<string, unknown> = {
     model: config.model,
     temperature: 0.1,
-    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: input.systemPrompt },
       { role: "user", content: input.userPrompt },
     ],
   };
+
+  if (options.includeResponseFormat) {
+    body.response_format = { type: "json_object" };
+  }
+
+  return body;
 }
 
-function previewText(text: string): string {
+function previewText(text: string, maxLength = 700): string {
   const compact = text.replace(/\s+/g, " ").trim();
-  return compact.length > 700 ? `${compact.slice(0, 700)}…` : compact;
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
 }
 
 function readErrorDetails(payload: unknown): {
@@ -156,9 +179,21 @@ function extractTextFromResponse(payload: unknown): string | null {
 }
 
 async function requestOnce(config: ProviderConfig, input: PromptInput): Promise<unknown | null> {
+  return requestOnceWithOptions(config, input, {
+    includeResponseFormat: true,
+    allowResponseFormatRetry: true,
+  });
+}
+
+async function requestOnceWithOptions(
+  config: ProviderConfig,
+  input: PromptInput,
+  options: RequestOptions
+): Promise<unknown | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
   try {
+    const apiPath = getApiPath(config.apiUrl);
     const response = await fetch(config.apiUrl, {
       method: "POST",
       signal: controller.signal,
@@ -166,7 +201,7 @@ async function requestOnce(config: ProviderConfig, input: PromptInput): Promise<
         "content-type": "application/json",
         authorization: `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify(buildRequestBody(config, input)),
+      body: JSON.stringify(buildRequestBody(config, input, options)),
     });
 
     const rawText = await response.text().catch(() => "");
@@ -187,20 +222,42 @@ async function requestOnce(config: ProviderConfig, input: PromptInput): Promise<
       if (details.param) console.warn(`param: ${details.param}`);
       if (details.message) console.warn(`message: ${details.message}`);
       if (rawPreview) console.warn(`raw response preview: ${rawPreview}`);
+
+      const responseFormatRejected =
+        options.includeResponseFormat &&
+        status === 400 &&
+        options.allowResponseFormatRetry &&
+        Boolean(details.param === "response_format" || (details.message ?? "").toLowerCase().includes("response_format"));
+
+      if (responseFormatRejected) {
+        console.warn("[ai-provider] retrying without response_format because OpenAI rejected response_format");
+        return requestOnceWithOptions(config, input, {
+          includeResponseFormat: false,
+          allowResponseFormatRetry: false,
+        });
+      }
       return null;
     }
 
     const text = extractTextFromResponse(payload);
     if (!text) {
-      console.warn(`[ai-provider] ${config.provider} returned empty content for ${input.schemaName}`);
+      console.warn("[ai-provider] openai_compatible empty content, using fallback");
       return null;
     }
 
     try {
       const parsed = JSON.parse(stripCodeFence(text));
+      console.info("[ai-provider] openai_compatible success", {
+        status: response.status,
+        model: config.model,
+        contentLength: text.length,
+        hasResponseFormat: options.includeResponseFormat,
+        apiPath,
+      });
       return parsed;
     } catch {
-      console.warn(`[ai-provider] ${config.provider} returned invalid JSON for ${input.schemaName}`);
+      console.warn("[ai-provider] openai_compatible parse failed, using fallback");
+      console.warn(`raw response preview: ${previewText(text, 500)}`);
       return null;
     }
   } catch (error) {

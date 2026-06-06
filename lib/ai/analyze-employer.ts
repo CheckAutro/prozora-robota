@@ -305,7 +305,7 @@ function buildUserPrompt(context: AnalyzeEmployerContext): string {
   });
 }
 
-function buildFallbackAnalysis(context: AnalyzeEmployerContext): AiAnalysisResult {
+function buildFallbackAnalysis(context: AnalyzeEmployerContext, fallbackReason: string): AiAnalysisResult {
   const text = [
     context.vacancyText,
     context.fetchedText,
@@ -374,6 +374,7 @@ function buildFallbackAnalysis(context: AnalyzeEmployerContext): AiAnalysisResul
     data_level: level,
     analysis_mode: "fallback",
     provider: null,
+    fallback_reason: fallbackReason,
     known_facts: knownFacts.length ? knownFacts : ["Недостатньо перевірених фактів."],
     external_findings: externalFindings.length ? externalFindings : ["Підтверджених зовнішніх джерел у контексті немає."],
     risks: risks.length
@@ -461,7 +462,9 @@ function coerceResult(value: unknown, fallback: AiAnalysisResult): AiAnalysisRes
 }
 
 export async function analyzeEmployer(context: AnalyzeEmployerContext): Promise<AiAnalysisResult> {
-  const fallback = buildFallbackAnalysis(context);
+  const fallbackReasonUnavailable = "provider_unavailable";
+  const fallbackReasonFailure = "provider_error_or_invalid_json";
+  const fallback = buildFallbackAnalysis(context, fallbackReasonUnavailable);
   const providerName = getEmployerAiProviderName();
   if (!providerName) return fallback;
 
@@ -472,7 +475,7 @@ export async function analyzeEmployer(context: AnalyzeEmployerContext): Promise<
   });
 
   if (!raw || typeof raw !== "object") {
-    return fallback;
+    return buildFallbackAnalysis(context, fallbackReasonFailure);
   }
 
   const coerced = coerceResult(raw, fallback);

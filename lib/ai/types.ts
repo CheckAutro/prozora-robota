@@ -39,6 +39,7 @@ export interface AiAnalysisResult {
   data_level: AiDataLevel;
   analysis_mode: "ai" | "fallback";
   provider: string | null;
+  fallback_reason?: string | null;
   known_facts: string[];
   external_findings: string[];
   risks: string[];

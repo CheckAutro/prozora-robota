@@ -309,6 +309,11 @@ export async function POST(req: NextRequest) {
   const ipHashValue = ipHash(req);
   const isAdmin = Boolean(user && (await isAdminEmail(user.email)));
   const limit = isAdmin ? null : user ? 5 : 3;
+  console.info("[ai-analysis] request received", {
+    type: analysisType,
+    isAdmin,
+    provider: process.env.AI_PROVIDER || "fallback",
+  });
   const usedBefore = await countUsage({
     userId: user?.id ?? null,
     anonymousId: existingAnonymousId,
@@ -405,6 +410,13 @@ export async function POST(req: NextRequest) {
   };
 
   const analysis = await analyzeEmployer(context);
+  if (analysis.analysis_mode === "fallback") {
+    console.info("[ai-analysis] using fallback result", {
+      reason: analysis.fallback_reason ?? (process.env.AI_PROVIDER ? "provider_error_or_invalid_json" : "provider_unavailable"),
+      analysisType,
+      isAdmin,
+    });
+  }
   await insertHistory({
     userId: user?.id ?? null,
     anonymousId,
