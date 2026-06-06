@@ -5,8 +5,8 @@ import type {
   ExternalCompanySourceStatus,
   ExternalCompanySourceType,
 } from "@/lib/types";
-import { normalizeExternalUrl, normalizeSourceType, sanitizeText, sourceNameFromUrl, inferSourceTypeFromContent } from "./source-normalizer";
-import { readExternalSourceUrl } from "./source-fetcher";
+import { normalizeExternalUrl, normalizeSourceType, sanitizeText, sourceNameFromUrl } from "./source-normalizer";
+import { enrichExternalCompanySourceUrl } from "./source-enricher";
 
 type ExternalCompanySourceRow = Record<string, unknown>;
 
@@ -298,25 +298,6 @@ export async function getAdminCompanyExternalSources(): Promise<ExternalCompanyS
   }
 }
 
-function detectPoints(text: string): { positive: string[]; negative: string[]; neutral: string[] } {
-  const lower = text.toLowerCase();
-  const positive: string[] = [];
-  const negative: string[] = [];
-  const neutral: string[] = [];
-
-  if (/офіцій|оформл|contract|contracting/.test(lower)) positive.push("Згадується офіційне оформлення.");
-  if (/ставка|salary|зарплат|оплата/.test(lower)) neutral.push("У джерелі згадується оплата або зарплата.");
-  if (/бронюван|відстроч/.test(lower)) neutral.push("Є згадка про бронювання або відстрочку.");
-  if (/позитив|добре|вигідн|прозор/.test(lower)) positive.push("Є позитивна згадка про умови.");
-  if (/затрим|штраф|негатив|важк|поган|плинність|перевантаж/.test(lower)) negative.push("Є негативна або ризикова згадка.");
-  return { positive, negative, neutral };
-}
-
-function toShortSummaryFromFetched(title: string | null, description: string | null, text: string | null): string {
-  const base = [title, description, text ? text.slice(0, 220) : null].filter(Boolean).join(" — ");
-  return sanitizeText(base || "Зовнішнє джерело про компанію", 600);
-}
-
 export async function upsertExternalCompanySource(
   input: {
     company_slug: string;
@@ -367,7 +348,7 @@ export async function upsertExternalCompanySource(
 
     let existingQuery = client
       .from("external_company_sources")
-      .select("id")
+      .select("id, status, is_public")
       .eq("company_slug", payload.company_slug)
       .eq("source_name", payload.source_name)
       .eq("source_type", payload.source_type);
@@ -385,9 +366,24 @@ export async function upsertExternalCompanySource(
     }
 
     if (existing?.id) {
+      const existingStatus = String(existing.status ?? "needs_verification").toLowerCase();
+      const existingIsPublic = Boolean(existing.is_public);
+      const nextStatus =
+        existingStatus === "verified" && existingIsPublic
+          ? "verified"
+          : payload.status ?? "needs_verification";
+      const nextIsPublic =
+        existingStatus === "verified" && existingIsPublic
+          ? true
+          : Boolean(payload.is_public ?? false);
+      const updatePayload = {
+        ...payload,
+        status: nextStatus,
+        is_public: nextIsPublic,
+      };
       const { error } = await client
         .from("external_company_sources")
-        .update(payload)
+        .update(updatePayload)
         .eq("id", existing.id);
       if (error) return { ok: false, error: error.message, missingTable: isMissingTableError(error) };
       return { ok: true, created: false, id: String(existing.id) };
@@ -417,31 +413,36 @@ export async function collectExternalCompanySignals(input: {
   const uniqueUrls = Array.from(new Set(input.sourceUrls.map((value) => normalizeExternalUrl(value, false)).filter(Boolean) as string[]));
 
   for (const sourceUrl of uniqueUrls) {
-    const fetched = await readExternalSourceUrl(sourceUrl, { allowAnyPublicHost: true, timeoutMs: 8000, maxBytes: 1024 * 1024 });
-    if (fetched.status !== "success") {
-      warnings.push(`${sourceUrl} -> ${fetched.reason ?? fetched.status}`);
-      continue;
+    const enriched = await enrichExternalCompanySourceUrl({
+      sourceUrl,
+      sourceName: input.sourceName ?? null,
+      sourceType: input.sourceType ?? null,
+    });
+    if (enriched.status !== "success") {
+      warnings.push(`${sourceUrl} -> ${enriched.warning ?? enriched.status}`);
     }
-
-    const summary = toShortSummaryFromFetched(fetched.title ?? null, fetched.description ?? null, fetched.text ?? null);
-    const points = detectPoints(summary);
-    const sourceType = input.sourceType ?? inferSourceTypeFromContent(fetched.title ?? null, fetched.description ?? null, sourceUrl);
+    const summary = enriched.shortSummary;
+    const sourceType = enriched.sourceType;
     const result = await upsertExternalCompanySource({
       company_slug: input.companySlug,
       company_name: input.companyName,
-      source_name: input.sourceName ?? fetched.sourceName ?? sourceNameFromUrl(sourceUrl),
+      source_name: enriched.sourceName || input.sourceName || sourceNameFromUrl(sourceUrl),
       source_url: sourceUrl,
       source_type: sourceType,
-      title: fetched.title ?? null,
+      title: enriched.title ?? null,
       short_summary: summary,
-      positive_points: points.positive,
-      negative_points: points.negative,
-      neutral_facts: points.neutral,
-      confidence: points.negative.length > 0 ? "medium" : "low",
+      positive_points: enriched.positivePoints,
+      negative_points: enriched.negativePoints,
+      neutral_facts: enriched.neutralFacts,
+      rating_value: enriched.ratingValue,
+      rating_scale: enriched.ratingScale,
+      reviews_count: enriched.reviewsCount,
+      confidence: enriched.confidence,
       status: "needs_verification",
       is_public: false,
-      source_excerpt: fetched.text?.slice(0, 1200) ?? null,
-      admin_note: `Collected from ${sourceUrl}`,
+      source_excerpt: enriched.sourceExcerpt,
+      admin_note: enriched.adminNote ?? `Collected from ${sourceUrl}`,
+      collected_at: new Date().toISOString(),
     });
     if (!result.ok) {
       warnings.push(`${sourceUrl} -> ${result.error}`);
@@ -452,23 +453,23 @@ export async function collectExternalCompanySignals(input: {
       id: result.id ?? sourceUrl,
       companySlug: input.companySlug,
       companyName: input.companyName,
-      sourceName: input.sourceName ?? fetched.sourceName ?? sourceNameFromUrl(sourceUrl),
+      sourceName: enriched.sourceName || input.sourceName || sourceNameFromUrl(sourceUrl),
       sourceUrl,
       sourceType,
-      title: fetched.title ?? null,
+      title: enriched.title ?? null,
       shortSummary: summary,
-      positivePoints: points.positive,
-      negativePoints: points.negative,
-      neutralFacts: points.neutral,
-      ratingValue: null,
-      ratingScale: 5,
-      reviewsCount: 0,
-      confidence: points.negative.length > 0 ? "medium" : "low",
+      positivePoints: enriched.positivePoints,
+      negativePoints: enriched.negativePoints,
+      neutralFacts: enriched.neutralFacts,
+      ratingValue: enriched.ratingValue,
+      ratingScale: enriched.ratingScale,
+      reviewsCount: enriched.reviewsCount,
+      confidence: enriched.confidence,
       status: "needs_verification",
       isPublic: false,
-      sourceExcerpt: fetched.text?.slice(0, 1200) ?? null,
+      sourceExcerpt: enriched.sourceExcerpt,
       collectedAt: new Date().toISOString(),
-      adminNote: `Collected from ${sourceUrl}`,
+      adminNote: enriched.adminNote ?? `Collected from ${sourceUrl}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });

@@ -30,7 +30,8 @@
     "generate:company-description-drafts": "npx tsx scripts/generate-company-description-drafts.ts",
     "import:company-source-facts": "npx tsx scripts/import-company-source-facts.ts",
     "import:vacancy-facts": "npx tsx scripts/import-vacancy-facts-csv.ts",
-    "import:vacancy-urls": "npx tsx scripts/bulk-import-vacancy-urls.ts"
+    "import:vacancy-urls": "npx tsx scripts/bulk-import-vacancy-urls.ts",
+    "discover:external-sources": "npx tsx scripts/discover-external-company-sources.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

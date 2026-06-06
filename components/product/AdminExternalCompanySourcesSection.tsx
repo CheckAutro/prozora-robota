@@ -14,6 +14,7 @@ import {
   Globe,
   AlertTriangle,
   XCircle,
+  Search,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -105,6 +106,7 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
   const [items, setItems] = useState<ExternalCompanySource[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [discoverBusy, setDiscoverBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState({ search: "", source: "", status: "", type: "" });
@@ -112,6 +114,25 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
   const [bulkBusy, setBulkBusy] = useState(false);
   const [pendingBulkAction, setPendingBulkAction] = useState<PendingBulkAction | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [discoverQuery, setDiscoverQuery] = useState("");
+  const [discoverDryRun, setDiscoverDryRun] = useState(true);
+  const [discoverLimit, setDiscoverLimit] = useState(25);
+  const [discoverResult, setDiscoverResult] = useState<{
+    company?: { slug: string; name: string; city: string | null; industry: string | null };
+    stats?: {
+      companiesProcessed: number;
+      queriesRun: number;
+      searchResults: number;
+      candidatesFound: number;
+      created: number;
+      skippedDuplicates: number;
+      blocked: number;
+      errors: number;
+    };
+    warnings?: string[];
+    candidates?: ExternalCompanySource[];
+    dryRun?: boolean;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -180,6 +201,45 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
       setError(err instanceof Error ? err.message : "Помилка оновлення.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function runDiscovery() {
+    const query = discoverQuery.trim();
+    if (!query) {
+      setError("Вкажіть назву або slug компанії.");
+      return;
+    }
+    setDiscoverBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const slugLike = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(query);
+      const res = await fetch("/api/admin/external-sources/discover", {
+        method: "POST",
+        headers: getAdminHeaders(accessToken),
+        body: JSON.stringify({
+          [slugLike ? "companySlug" : "companyName"]: query,
+          limit: discoverLimit,
+          dryRun: discoverDryRun,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Не вдалося виконати пошук джерел.");
+      setDiscoverResult(data as typeof discoverResult);
+      const stats = data.stats ?? {};
+      setMessage(
+        discoverDryRun
+          ? `Знайдено кандидатів: ${stats.candidatesFound ?? 0}, дублікатів: ${stats.skippedDuplicates ?? 0}.`
+          : `Створено: ${stats.created ?? 0}, пропущено дублікатів: ${stats.skippedDuplicates ?? 0}.`
+      );
+      if (!discoverDryRun) {
+        await load();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Помилка пошуку джерел.");
+    } finally {
+      setDiscoverBusy(false);
     }
   }
 
@@ -341,6 +401,80 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
           <li>• Або запустіть backfill з існуючих даних командою <code className="rounded bg-white px-1.5 py-0.5 text-xs text-ink">npm run backfill:external-sources</code>.</li>
           <li>• На сайті показуються тільки <strong>verified + is_public</strong>.</li>
         </ul>
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-ink/[0.06] bg-ink/[0.02] p-4">
+        <div>
+          <h3 className="font-semibold text-ink">Знайти джерела для компанії</h3>
+          <p className="mt-1 text-sm text-ink-soft">
+            Вкажіть назву або slug компанії. Пошук створює лише кандидати з позначкою на перевірці.
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+          <input
+            className="w-full rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm focus-ring"
+            placeholder="Наприклад: eva або nova-poshta"
+            value={discoverQuery}
+            onChange={(e) => setDiscoverQuery(e.target.value)}
+          />
+          <input
+            type="number"
+            min={1}
+            max={200}
+            className="w-full rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm focus-ring"
+            value={discoverLimit}
+            onChange={(e) => setDiscoverLimit(Math.max(1, Math.min(200, Number(e.target.value) || 25)))}
+          />
+          <Button size="sm" disabled={discoverBusy} onClick={() => void runDiscovery()}>
+            <Search className="h-4 w-4" /> Знайти джерела
+          </Button>
+        </div>
+        <label className="inline-flex items-center gap-2 text-sm text-ink-soft">
+          <input
+            type="checkbox"
+            checked={discoverDryRun}
+            onChange={(e) => setDiscoverDryRun(e.target.checked)}
+          />
+          dry run
+        </label>
+        {discoverResult && (
+          <div className="space-y-3 rounded-xl border border-ink/[0.06] bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-medium text-ink">
+                  {discoverResult.company?.name ?? discoverQuery}
+                  {discoverResult.company?.slug ? <span className="ml-2 text-xs text-ink-muted">/{discoverResult.company.slug}</span> : null}
+                </p>
+                <p className="text-xs text-ink-muted">
+                  {discoverResult.dryRun ? "dry run" : "saved"} · кандидати: {discoverResult.stats?.candidatesFound ?? 0}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-ink-soft">
+                <span className="rounded-full bg-ink/[0.04] px-2.5 py-1">створено: {discoverResult.stats?.created ?? 0}</span>
+                <span className="rounded-full bg-ink/[0.04] px-2.5 py-1">дублікатів: {discoverResult.stats?.skippedDuplicates ?? 0}</span>
+                <span className="rounded-full bg-ink/[0.04] px-2.5 py-1">blocked: {discoverResult.stats?.blocked ?? 0}</span>
+              </div>
+            </div>
+            {discoverResult.warnings && discoverResult.warnings.length > 0 && (
+              <div className="space-y-1 text-xs text-amber-800">
+                {discoverResult.warnings.slice(0, 3).map((warning) => (
+                  <p key={warning} className="rounded-lg bg-amber-50 px-2.5 py-1.5">{warning}</p>
+                ))}
+              </div>
+            )}
+            {discoverResult.candidates && discoverResult.candidates.length > 0 && (
+              <div className="space-y-2">
+                {discoverResult.candidates.slice(0, 3).map((candidate) => (
+                  <div key={candidate.id} className="rounded-lg border border-ink/[0.06] bg-ink/[0.02] px-3 py-2 text-sm">
+                    <p className="font-medium text-ink">{candidate.sourceName}</p>
+                    <p className="text-xs text-ink-muted">{candidate.title ?? "Без title"} · {candidate.sourceType}</p>
+                    <p className="line-clamp-2 text-xs leading-relaxed text-ink-soft">{candidate.shortSummary}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (

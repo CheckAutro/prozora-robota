@@ -1,7 +1,7 @@
 import { getServiceClient } from "@/lib/supabase/server";
 import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
+import { searchExternalSourcesWithWarnings } from "@/lib/external/search-provider";
 import type {
-  AiConfidenceLevel,
   ExternalSourceCandidate,
   ExternalSourceSignalType,
 } from "./types";
@@ -17,16 +17,6 @@ interface FinderResult {
   sources: ExternalSourceCandidate[];
   warnings: string[];
 }
-
-const SEARCH_ALLOWED_HOSTS = [
-  "dou.ua",
-  "djinni.co",
-  "robota.ua",
-  "work.ua",
-  "grc.ua",
-];
-const SEARCH_UNAVAILABLE_MESSAGE =
-  "Зовнішній пошук джерел поки не активний. Аналіз виконано на основі доступних даних сайту.";
 
 function cleanText(value: unknown, limit = 500): string {
   if (typeof value !== "string") return "";
@@ -51,11 +41,6 @@ function sourceNameFromUrl(value: string): string {
   return host || "Зовнішнє джерело";
 }
 
-function allowedSearchUrl(value: string): boolean {
-  const host = hostFromUrl(value);
-  return SEARCH_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
-}
-
 function uniqueSources(sources: ExternalSourceCandidate[]): ExternalSourceCandidate[] {
   const seen = new Set<string>();
   const result: ExternalSourceCandidate[] = [];
@@ -76,13 +61,6 @@ function inferSignalType(title: string, snippet: string, url: string): ExternalS
   if (/forum|обговор|discussion|коментар/.test(text)) return "discussion";
   if (/company|компан|роботодав/.test(text)) return "company_page";
   return "unknown";
-}
-
-function inferConfidence(sourceName: string, title: string, snippet: string): AiConfidenceLevel {
-  const text = `${title} ${snippet}`.toLowerCase();
-  if (/відгук|відгуки|оцінк|рейтинг|reviews?|rating/.test(text)) return "high";
-  if (["DOU", "Djinni", "Work.ua", "Robota.ua"].includes(sourceName)) return "medium";
-  return "low";
 }
 
 async function loadControlledSources(input: FinderInput): Promise<ExternalSourceCandidate[]> {
@@ -197,89 +175,6 @@ async function loadControlledSources(input: FinderInput): Promise<ExternalSource
   return sources.filter((source) => source.source_url || source.source_name === "Прозора робота");
 }
 
-function parseSearchItems(payload: unknown): Array<{ title: string; url: string; snippet: string }> {
-  if (!payload || typeof payload !== "object") return [];
-  const record = payload as Record<string, unknown>;
-  const candidates = [
-    record.organic,
-    record.organic_results,
-    record.results,
-    record.items,
-  ].find(Array.isArray) as unknown[] | undefined;
-  if (!candidates) return [];
-
-  return candidates
-    .map((item) => {
-      const row = item as Record<string, unknown>;
-      return {
-        title: cleanText(row.title, 180),
-        url: cleanText(row.link ?? row.url, 500),
-        snippet: cleanText(row.snippet ?? row.description, 320),
-      };
-    })
-    .filter((item) => item.title && item.url && allowedSearchUrl(item.url));
-}
-
-async function searchExternalSources(input: FinderInput): Promise<{ sources: ExternalSourceCandidate[]; warnings: string[] }> {
-  const apiKey = process.env.SEARCH_API_KEY ?? "";
-  const apiUrl = process.env.SEARCH_API_URL ?? "";
-  const warnings: string[] = [];
-
-  if (!apiKey || !apiUrl) {
-    return {
-      sources: [],
-      warnings: [SEARCH_UNAVAILABLE_MESSAGE],
-    };
-  }
-
-  const companyName = input.companyName?.trim();
-  if (!companyName) {
-    return { sources: [], warnings: ["Назву компанії не визначено, зовнішній пошук пропущено."] };
-  }
-
-  const query = `${companyName} відгуки роботодавець OR reviews site:dou.ua OR site:djinni.co OR site:work.ua OR site:robota.ua`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({ q: query, query, num: 8 }),
-    });
-
-    if (!response.ok) {
-      return { sources: [], warnings: [SEARCH_UNAVAILABLE_MESSAGE] };
-    }
-
-    const payload = await response.json();
-    const sources = parseSearchItems(payload).map((item) => {
-      const sourceName = sourceNameFromUrl(item.url);
-      return {
-        source_name: sourceName,
-        source_url: item.url,
-        title: item.title,
-        snippet: item.snippet,
-        signal_type: inferSignalType(item.title, item.snippet, item.url),
-        confidence: inferConfidence(sourceName, item.title, item.snippet),
-      };
-    });
-    return { sources, warnings };
-  } catch (error) {
-    const aborted = error instanceof Error && error.name === "AbortError";
-    return {
-      sources: [],
-      warnings: [SEARCH_UNAVAILABLE_MESSAGE],
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 function inferTopic(source: ExternalSourceCandidate): string {
   const text = `${source.title} ${source.snippet}`.toLowerCase();
   if (/зарплат|salary|оплат|виплат/.test(text)) return "salary";
@@ -347,11 +242,36 @@ async function saveUnverifiedSignals(
 export async function findEmployerExternalSources(input: FinderInput): Promise<FinderResult> {
   const warnings: string[] = [];
   const controlled = await loadControlledSources(input);
-  const searched = await searchExternalSources(input);
+  const companyName = input.companyName?.trim();
+  if (!companyName) {
+    warnings.push("Назву компанії не визначено, зовнішній пошук пропущено.");
+  }
+
+  const query = companyName
+    ? `${companyName} відгуки працівників`
+    : "";
+  const searched = query ? await searchExternalSourcesWithWarnings(query) : { results: [], warnings: [] };
   warnings.push(...searched.warnings);
 
-  const sources = uniqueSources([...controlled, ...searched.sources]);
-  await saveUnverifiedSignals(input, searched.sources);
+  const searchSources: ExternalSourceCandidate[] = searched.results.map((item) => {
+    const sourceName = sourceNameFromUrl(item.url);
+    return {
+      source_name: sourceName,
+      source_url: item.url,
+      title: item.title,
+      snippet: item.snippet,
+      signal_type: inferSignalType(item.title, item.snippet, item.url),
+      confidence:
+        /відгук|відгуки|оцінк|рейтинг|reviews?|rating/.test(`${item.title} ${item.snippet}`.toLowerCase())
+          ? "high"
+          : ["DOU", "Djinni", "Work.ua", "Robota.ua"].includes(sourceName)
+            ? "medium"
+            : "low",
+    };
+  });
+
+  const sources = uniqueSources([...controlled, ...searchSources]);
+  await saveUnverifiedSignals(input, searchSources);
 
   return { sources, warnings };
 }
