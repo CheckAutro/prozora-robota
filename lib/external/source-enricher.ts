@@ -86,7 +86,9 @@ export async function enrichExternalCompanySourceUrl(
   const sourceText = [fetchResult.title, fetchResult.description, fetchResult.text].filter(Boolean).join(" ");
   const sourceType = input.sourceType ?? inferSourceTypeFromContent(fetchResult.title ?? null, fetchResult.description ?? null, input.sourceUrl);
   const points = detectPoints(sourceText || input.sourceUrl);
-  const rating = extractRating(sourceText);
+  const rating = sourceType === "rating" || sourceType === "reviews"
+    ? extractRating(sourceText)
+    : { ratingValue: null, ratingScale: null, reviewsCount: 0 };
   const sourceLanguage = detectSourceLanguage({
     title: fetchResult.title ?? null,
     snippet: `${fetchResult.description ?? ""} ${fetchResult.text ?? ""}`,

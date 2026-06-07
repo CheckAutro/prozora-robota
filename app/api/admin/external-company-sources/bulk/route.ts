@@ -4,7 +4,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth-server";
-import { primaryTextLooksUkrainian } from "@/lib/external/source-normalizer";
+import {
+  detectSourceLanguage,
+  normalizeExternalSourceForPublic,
+  primaryTextLooksUkrainian,
+  sanitizeText,
+} from "@/lib/external/source-normalizer";
+import type { ExternalCompanySourceType } from "@/lib/types";
 
 async function checkAdminAuth(
   req: NextRequest
@@ -34,12 +40,34 @@ function buildUpdate(action: string): Record<string, unknown> | null {
   if (action === "reject") return { status: "rejected", is_public: false };
   if (action === "publish") return { status: "verified", is_public: true };
   if (action === "unpublish") return { is_public: false };
+  if (action === "normalize_ukrainian") return {};
   return null;
 }
 
 function textArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+}
+
+function sourceType(value: unknown): ExternalCompanySourceType {
+  return value === "reviews" ||
+    value === "rating" ||
+    value === "vacancy" ||
+    value === "company_page" ||
+    value === "article" ||
+    value === "other"
+    ? value
+    : "other";
+}
+
+function updateOriginalLanguageNote(note: unknown, language: string): string {
+  const base = typeof note === "string" ? note.trim() : "";
+  const next = `Original language: ${language}`;
+  if (!base) return next;
+  if (/Original language:\s*(uk|ru|en|unknown)/i.test(base)) {
+    return base.replace(/Original language:\s*(uk|ru|en|unknown)/i, next);
+  }
+  return `${base}; ${next}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -71,6 +99,54 @@ export async function POST(req: NextRequest) {
     const errors: Array<{ id: string; error: string }> = [];
 
     for (const id of ids) {
+      if (action === "normalize_ukrainian") {
+        const { data: current, error: currentError } = await client
+          .from("external_company_sources")
+          .select("title, short_summary, source_excerpt, admin_note, source_url, source_type")
+          .eq("id", id)
+          .single();
+        if (currentError || !current) {
+          skipped_count += 1;
+          errors.push({ id, error: "External company source not found" });
+          continue;
+        }
+        const row = current as Record<string, unknown>;
+        const title = typeof row.title === "string" ? row.title : "";
+        const shortSummary = typeof row.short_summary === "string" ? row.short_summary : "";
+        const sourceExcerpt = typeof row.source_excerpt === "string" ? row.source_excerpt : "";
+        const sourceUrl = typeof row.source_url === "string" ? row.source_url : "";
+        const language = detectSourceLanguage({
+          title,
+          snippet: `${shortSummary} ${sourceExcerpt}`,
+          sourceUrl,
+        });
+        const normalized = normalizeExternalSourceForPublic({
+          title,
+          snippet: `${shortSummary} ${sourceExcerpt}`,
+          sourceUrl,
+          sourceType: sourceType(row.source_type),
+          sourceLanguage: language,
+        });
+        const { error } = await client
+          .from("external_company_sources")
+          .update({
+            title: normalized.ukrainianTitle,
+            short_summary: sanitizeText(normalized.ukrainianShortSummary, 800),
+            positive_points: normalized.positivePointsUk,
+            negative_points: normalized.negativePointsUk,
+            neutral_facts: normalized.neutralFactsUk,
+            admin_note: updateOriginalLanguageNote(row.admin_note, normalized.sourceLanguage),
+          })
+          .eq("id", id);
+        if (error) {
+          skipped_count += 1;
+          errors.push({ id, error: error.message });
+        } else {
+          updated_count += 1;
+        }
+        continue;
+      }
+
       if (action === "publish") {
         const { data: current, error: currentError } = await client
           .from("external_company_sources")

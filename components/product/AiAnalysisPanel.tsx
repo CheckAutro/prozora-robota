@@ -38,6 +38,13 @@ interface AiAnalysis {
     external_ratings: number;
     external_signals: number;
     external_company_sources: number;
+    external_company_sources_total?: number;
+    external_review_sources?: number;
+    external_rating_sources?: number;
+    external_vacancy_sources?: number;
+    external_company_page_sources?: number;
+    reputation_sources_total?: number;
+    open_fact_sources_total?: number;
     found_external_sources: number;
     vacancy_text: boolean;
   };
@@ -131,15 +138,14 @@ function AiResultView({ data }: { data: AiResponse }) {
     data.analysis.data_level !== "insufficient" &&
     typeof data.analysis.risk_score === "number" &&
     data.analysis.risk_score > 0;
-  const sourceSignalCount = data.sources.filter((source) =>
-    source.source_name !== "Прозора робота" &&
-    ["review", "rating", "discussion"].includes(source.signal_type)
-  ).length;
   const externalSignalSources = data.sources.filter((source) =>
     source.source_name !== "Прозора робота" &&
     ["review", "rating", "discussion"].includes(source.signal_type)
   );
-  const externalSourceCount = data.analysis.source_breakdown.external_company_sources;
+  const externalSourceCount = data.analysis.source_breakdown.external_company_sources_total ?? data.analysis.source_breakdown.external_company_sources;
+  const hasExternalRatings =
+    sourceBreakdown.external_ratings > 0 ||
+    (sourceBreakdown.external_rating_sources ?? 0) > 0;
   const summary = data.analysis.summary.trim();
   const showSummaryToggle = summary.length > 220;
   const displayedSummary = summaryExpanded || !showSummaryToggle
@@ -211,7 +217,7 @@ function AiResultView({ data }: { data: AiResponse }) {
         <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
           <p className="text-xs text-ink-muted">Оцінки</p>
           <p className="mt-1 text-sm font-semibold text-ink">
-            {sourceBreakdown.external_ratings > 0 ? "є" : "немає"}
+            {hasExternalRatings ? "є" : "немає"}
           </p>
         </div>
       </div>

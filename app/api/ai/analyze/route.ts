@@ -5,6 +5,7 @@ import { getAuthUser } from "@/lib/supabase/auth-server";
 import { getClientIp } from "@/lib/rate-limit";
 import { slugifyCompanyName } from "@/lib/slugify";
 import { analyzeEmployer, type AnalyzeEmployerContext } from "@/lib/ai/analyze-employer";
+import { applySparseReputationGuard } from "@/lib/ai/risk-safety";
 import { findEmployerExternalSources } from "@/lib/ai/external-source-finder";
 import { readVacancyUrl } from "@/lib/ai/safe-vacancy-url-reader";
 import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
@@ -414,7 +415,31 @@ export async function POST(req: NextRequest) {
     foundExternalSources: finder.sources,
   };
 
-  const analysis = await analyzeEmployer(context);
+  const analysis = applySparseReputationGuard(
+    await analyzeEmployer(context),
+    {
+      internal_reviews: context.internalReviews.length,
+      open_facts: context.openFacts.length,
+      external_ratings: context.externalRatings.length,
+      external_signals: context.externalSignals.length,
+      external_company_sources: context.externalCompanySources.length,
+      external_company_sources_total: context.externalCompanySources.length,
+      external_review_sources: context.externalCompanySources.filter((source) => source.sourceType === "reviews").length,
+      external_rating_sources: context.externalCompanySources.filter((source) => source.sourceType === "rating").length,
+      external_vacancy_sources: context.externalCompanySources.filter((source) => source.sourceType === "vacancy").length,
+      external_company_page_sources: context.externalCompanySources.filter((source) => source.sourceType === "company_page").length,
+      reputation_sources_total:
+        context.internalReviews.length +
+        context.externalRatings.length +
+        context.externalSignals.length +
+        context.externalCompanySources.filter((source) => source.sourceType === "reviews" || source.sourceType === "rating").length,
+      open_fact_sources_total:
+        context.openFacts.length +
+        context.externalCompanySources.filter((source) => source.sourceType === "vacancy" || source.sourceType === "company_page").length,
+      found_external_sources: context.foundExternalSources.length,
+      vacancy_text: Boolean(context.vacancyText || context.fetchedText),
+    }
+  );
   if (analysis.analysis_mode === "fallback") {
     console.info("[ai-analysis] using fallback result", {
       reason: analysis.fallback_reason ?? (process.env.AI_PROVIDER ? "provider_error_or_invalid_json" : "provider_unavailable"),

@@ -1,6 +1,6 @@
 import { ExternalLink, Star, UsersRound, CalendarClock } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import type { ExternalRating } from "@/lib/types";
+import type { ExternalCompanySource, ExternalRating } from "@/lib/types";
 
 function formatDate(value: string | null): string {
   if (!value) return "Дата оновлення не вказана";
@@ -19,9 +19,13 @@ function formatNumber(value: number): string {
 
 export function ExternalRatingsSection({
   ratings,
+  companySourceRatings = [],
 }: {
   ratings: ExternalRating[];
+  companySourceRatings?: ExternalCompanySource[];
 }) {
+  const hasRatings = ratings.length > 0 || companySourceRatings.length > 0;
+
   return (
     <section className="space-y-3">
       <div>
@@ -34,13 +38,13 @@ export function ExternalRatingsSection({
         </p>
       </div>
 
-      {ratings.length === 0 && (
+      {!hasRatings && (
         <Card className="p-5 text-sm text-ink-soft">
           Публічних підтверджених зовнішніх оцінок поки немає.
         </Card>
       )}
 
-      {ratings.length > 0 && (
+      {hasRatings && (
         <div className="grid gap-3 sm:grid-cols-2">
           {ratings.map((rating) => (
           <Card key={rating.id} className="space-y-3 p-5">
@@ -99,6 +103,65 @@ export function ExternalRatingsSection({
                 {rating.note}
               </p>
             )}
+            </Card>
+          ))}
+          {companySourceRatings.map((source) => (
+            <Card key={source.id} className="space-y-3 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-ink">{source.sourceName}</h3>
+                  <p className="text-xs text-ink-muted">{source.companyName}</p>
+                </div>
+                {source.sourceUrl && (
+                  <a
+                    href={source.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-ink/10 text-ink-muted hover:border-brand-300 hover:text-brand-700 focus-ring"
+                    aria-label={`Відкрити джерело ${source.sourceName}`}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+
+              <div className="grid gap-2 text-sm text-ink-soft">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Star className="h-4 w-4 text-amber-400" />
+                    Оцінка
+                  </span>
+                  <span className="font-semibold text-ink">
+                    {source.ratingValue !== null
+                      ? `${source.ratingValue.toFixed(1)} / ${source.ratingScale ?? 5}`
+                      : "Не вказана"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-1.5">
+                    <UsersRound className="h-4 w-4 text-brand-600" />
+                    Кількість оцінок
+                  </span>
+                  <span className="font-semibold text-ink">
+                    {formatNumber(source.reviewsCount)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-1.5">
+                    <CalendarClock className="h-4 w-4 text-brand-600" />
+                    Оновлено
+                  </span>
+                  <span className="text-right font-semibold text-ink">
+                    {formatDate(source.collectedAt)}
+                  </span>
+                </div>
+              </div>
+
+              {source.shortSummary && (
+                <p className="border-t border-ink/[0.06] pt-3 text-xs text-ink-muted">
+                  {source.shortSummary}
+                </p>
+              )}
             </Card>
           ))}
         </div>

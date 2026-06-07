@@ -64,6 +64,9 @@ function uniqueSources(sources: ExternalSourceCandidate[]): ExternalSourceCandid
 
 function inferSignalType(title: string, snippet: string, url: string): ExternalSourceSignalType {
   const text = `${title} ${snippet} ${url}`.toLowerCase();
+  const host = hostFromUrl(url).toLowerCase();
+  if (host.includes("work.ua")) return /\/jobs\/\d+\/?/.test(text) ? "vacancy" : "company_page";
+  if (host.includes("robota.ua")) return /vacancy|ваканс|\/jobs?\//.test(text) ? "vacancy" : "company_page";
   if (/відгук|відгуки|reviews?|отзыв|отзывы/.test(text)) return "review";
   if (/rating|рейтинг|оцінк|оценк|stars?/.test(text)) return "rating";
   if (/ваканс|job|vacancy|робота/.test(text)) return "vacancy";

@@ -44,7 +44,7 @@ const TYPE_META: Record<ExternalCompanySourceType, string> = {
   other: "Інше",
 };
 
-type BulkAction = "approve" | "publish" | "unpublish" | "reject" | "mark_needs_verification";
+type BulkAction = "approve" | "publish" | "unpublish" | "reject" | "mark_needs_verification" | "normalize_ukrainian";
 
 const EMPTY_FORM = {
   company_slug: "",
@@ -361,6 +361,15 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
         changeLabel: "needs_verification",
         confirmLabel: "Застосувати",
       },
+      normalize_ukrainian: {
+        action,
+        ids: selectedItems.map((item) => item.id),
+        title: "Bulk: Нормалізувати українською",
+        fieldLabel: "title / summary / points / admin_note",
+        changeLabel: "українське коротке узагальнення; status/is_public без змін",
+        warning: "Дія не публікує джерела автоматично і не змінює статус.",
+        confirmLabel: "Нормалізувати",
+      },
     };
     setPendingBulkAction(config[action]);
   }
@@ -622,6 +631,9 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
         </Button>
         <Button size="sm" variant="ghost" disabled={selectedItems.length === 0 || bulkBusy} onClick={() => requestBulkAction("mark_needs_verification")}>
           На перевірку
+        </Button>
+        <Button size="sm" variant="outline" disabled={selectedItems.length === 0 || bulkBusy} onClick={() => requestBulkAction("normalize_ukrainian")}>
+          Нормалізувати українською
         </Button>
       </div>
 

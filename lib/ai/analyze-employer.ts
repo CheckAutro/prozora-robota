@@ -20,6 +20,10 @@ import {
   getEmployerAiProviderName,
   runEmployerAiAnalysisPrompt,
 } from "./ai-provider";
+import {
+  applySparseReputationGuard,
+  completeSourceBreakdown,
+} from "./risk-safety";
 
 export interface AiReviewContext {
   id: string;
@@ -117,7 +121,7 @@ function hasEmployerExperienceContext(context: AnalyzeEmployerContext): boolean 
     context.internalReviews.length > 0 ||
     context.externalRatings.length > 0 ||
     context.externalSignals.length > 0 ||
-    context.externalCompanySources.some((source) => ["reviews", "rating", "article"].includes(source.sourceType)) ||
+    context.externalCompanySources.some((source) => ["reviews", "rating"].includes(source.sourceType)) ||
     hasReviewRatingOrDiscussionSource(context)
   );
 }
@@ -150,7 +154,7 @@ function dataLevel(context: AnalyzeEmployerContext): AiDataLevel {
     concreteOpenFacts.length +
     context.externalRatings.length +
     context.externalSignals.length +
-    context.externalCompanySources.filter((source) => ["reviews", "rating", "article"].includes(source.sourceType)).length +
+    context.externalCompanySources.filter((source) => ["reviews", "rating"].includes(source.sourceType)).length +
     context.foundExternalSources.filter((source) => source.signal_type !== "company_page").length +
     (hasConcreteVacancyData ? 2 : textPresent ? 1 : 0);
   if (
@@ -267,6 +271,18 @@ function normalizeContextSafety(
   };
 }
 
+function sourceBreakdownFromContext(context: AnalyzeEmployerContext) {
+  return completeSourceBreakdown({
+    internalReviews: context.internalReviews.length,
+    openFacts: context.openFacts.length,
+    externalRatings: context.externalRatings.length,
+    externalReviewSignals: context.externalSignals.length,
+    externalCompanySourceTypes: context.externalCompanySources.map((source) => source.sourceType),
+    foundExternalSources: context.foundExternalSources.length,
+    vacancyText: hasVacancyText(context),
+  });
+}
+
 function buildSystemPrompt(): string {
   return [
     "You analyze Ukrainian employer and vacancy context.",
@@ -276,6 +292,10 @@ function buildSystemPrompt(): string {
     "AI analysis is not a review and does not affect ratings.",
     "Separate: 1) internal reviews, 2) open facts, 3) external ratings, 4) external signals, 5) vacancy text, 6) AI conclusion.",
     "Also consider verified external company sources separately from internal reviews.",
+    "Do not classify company risk as low only because no negative data exists.",
+    "If there are no internal reviews, no external ratings, and no verified review/rating sources, return risk_level unknown, risk_score null, confidence_level low.",
+    "Vacancy pages and company pages are open facts, not reputation evidence.",
+    "Work.ua and Robota.ua vacancy/company pages can support open facts, but they are not enough to conclude low risk.",
   ].join(" ");
 }
 
@@ -329,6 +349,13 @@ function buildUserPrompt(context: AnalyzeEmployerContext): string {
         external_ratings: "number",
         external_signals: "number",
         external_company_sources: "number",
+        external_company_sources_total: "number",
+        external_review_sources: "number",
+        external_rating_sources: "number",
+        external_vacancy_sources: "number",
+        external_company_page_sources: "number",
+        reputation_sources_total: "number",
+        open_fact_sources_total: "number",
         found_external_sources: "number",
         vacancy_text: "boolean",
       },
@@ -339,6 +366,10 @@ function buildUserPrompt(context: AnalyzeEmployerContext): string {
       "Do not invent reviews, salaries, ratings, or reputation.",
       "Do not claim official employment, salaries, delays, booking, or reputation unless present in context.",
       "If data is insufficient, return risk_level unknown, confidence_level low, and risk_score null.",
+      "Do not classify company risk as low only because no negative data exists.",
+      "If there are no internal reviews, no external ratings, no external review signals, and no verified external review/rating sources, return risk_level unknown, risk_score null, confidence_level low.",
+      "Vacancy pages and company pages are open facts, not reputation evidence.",
+      "Work.ua and Robota.ua vacancy/company pages can support open facts, but they are not enough to conclude low risk.",
       "Recommendations must be practical: what to clarify, what to ask in writing, what to verify.",
     ],
     context: controlledContext,
@@ -439,15 +470,7 @@ function buildFallbackAnalysis(context: AnalyzeEmployerContext, fallbackReason: 
       "Порівнюйте відкриті вакансії з фактичними умовами на співбесіді.",
       !hasEmployerExperienceContext(context) ? "Залиште анонімний відгук після співбесіди або роботи." : "Якщо даних недостатньо, залиште або попросіть анонімний відгук працівників.",
     ], 6),
-    source_breakdown: {
-      internal_reviews: context.internalReviews.length,
-      open_facts: context.openFacts.length,
-      external_ratings: context.externalRatings.length,
-      external_signals: context.externalSignals.length,
-      external_company_sources: context.externalCompanySources.length,
-      found_external_sources: context.foundExternalSources.length,
-      vacancy_text: textPresent,
-    },
+    source_breakdown: sourceBreakdownFromContext(context),
     disclaimer: DISCLAIMER,
   };
 }
@@ -507,7 +530,7 @@ export async function analyzeEmployer(context: AnalyzeEmployerContext): Promise<
   const fallbackReasonFailure = "provider_error_or_invalid_json";
   const fallback = buildFallbackAnalysis(context, fallbackReasonUnavailable);
   const providerName = getEmployerAiProviderName();
-  if (!providerName) return fallback;
+  if (!providerName) return applySparseReputationGuard(fallback, fallback.source_breakdown);
 
   const raw = await runEmployerAiAnalysisPrompt({
     systemPrompt: buildSystemPrompt(),
@@ -516,7 +539,8 @@ export async function analyzeEmployer(context: AnalyzeEmployerContext): Promise<
   });
 
   if (!raw || typeof raw !== "object") {
-    return buildFallbackAnalysis(context, fallbackReasonFailure);
+    const failureFallback = buildFallbackAnalysis(context, fallbackReasonFailure);
+    return applySparseReputationGuard(failureFallback, failureFallback.source_breakdown);
   }
 
   const coerced = coerceResult(raw, fallback);
@@ -529,12 +553,14 @@ export async function analyzeEmployer(context: AnalyzeEmployerContext): Promise<
     context
   );
 
-  if (normalized.risk_level === "unknown" && normalized.risk_score !== null) {
+  const guarded = applySparseReputationGuard(normalized, normalized.source_breakdown);
+
+  if (guarded.risk_level === "unknown" && guarded.risk_score !== null) {
     return {
-      ...normalized,
+      ...guarded,
       risk_score: null,
     };
   }
 
-  return normalized;
+  return guarded;
 }

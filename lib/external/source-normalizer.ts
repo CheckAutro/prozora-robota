@@ -88,6 +88,13 @@ export function inferSourceTypeFromContent(
   url: string
 ): ExternalCompanySourceType {
   const text = `${title ?? ""} ${snippet ?? ""} ${url}`.toLowerCase();
+  const host = hostFromUrl(url);
+  if (host.includes("work.ua")) {
+    return /\/jobs\/\d+\/?/.test(text) ? "vacancy" : "company_page";
+  }
+  if (host.includes("robota.ua")) {
+    return /vacancy|ваканс|\/jobs?\//.test(text) ? "vacancy" : "company_page";
+  }
   if (/відгук|відгуки|reviews?|отзыв|отзывы/.test(text)) return "reviews";
   if (/рейтинг|оцінк|оценк|rating|score|stars?/.test(text)) return "rating";
   if (/ваканс|job|vacancy|робота/.test(text)) return "vacancy";

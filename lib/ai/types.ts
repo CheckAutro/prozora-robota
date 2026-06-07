@@ -29,6 +29,13 @@ export interface AiSourceBreakdown {
   external_ratings: number;
   external_signals: number;
   external_company_sources: number;
+  external_company_sources_total: number;
+  external_review_sources: number;
+  external_rating_sources: number;
+  external_vacancy_sources: number;
+  external_company_page_sources: number;
+  reputation_sources_total: number;
+  open_fact_sources_total: number;
   found_external_sources: number;
   vacancy_text: boolean;
 }
