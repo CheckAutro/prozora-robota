@@ -44,6 +44,8 @@ import { cn } from "@/lib/cn";
 import type { CompanyOpenFact, ExternalRating, ExternalReviewSignal, ExternalCompanySource } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { MetricTile } from "@/components/ui/MetricTile";
 import { CompanyReviewsSection } from "@/components/product/CompanyReviews";
 import { ExternalRatingsSection } from "@/components/product/ExternalRatingsSection";
 
@@ -401,8 +403,8 @@ function CompanyQuickCheckCard({
   const hasOpenFacts = breakdown.openFactSourcesTotal > 0 || breakdown.totalExternalSources > 0;
   const riskLabel = hasReputationData ? "Потребує перевірки" : "Недостатньо даних";
   const riskBadgeOnDark = hasReputationData
-    ? "border-amber-400/40 bg-amber-400/[0.15] text-amber-300"
-    : "border-white/[0.15] bg-white/[0.08] text-white/50";
+    ? "border-amber-300 bg-amber-50 text-amber-700"
+    : "border-ink/[0.1] bg-ink/[0.03] text-ink-muted";
   const confidence = hasReputationData
     ? dataLevel === "Є достатньо даних" ? "середня" : "низька"
     : "низька";
@@ -464,23 +466,23 @@ function CompanyQuickCheckCard({
     "Чи є бронювання або відстрочка і чи дають письмове підтвердження?",
   ];
 
-  const confidenceBadgeOnDark = confidence === "середня"
-    ? "border-brand-400/40 bg-brand-400/[0.15] text-brand-300"
-    : "border-white/[0.15] bg-white/[0.08] text-white/50";
+  const confidenceBadgeLight = confidence === "середня"
+    ? "border-brand-200 bg-brand-50 text-brand-700"
+    : "border-ink/[0.1] bg-ink/[0.03] text-ink-muted";
 
   return (
     <Card className="overflow-hidden">
-      {/* ── Dark header panel ── */}
-      <div className="bg-gradient-to-br from-[#0f1f1a] to-[#1a3028] px-4 pb-5 pt-5 sm:px-5">
-        <p className="text-[0.625rem] font-semibold uppercase tracking-widest text-brand-400">
+      {/* ── Light feature header ── */}
+      <div className="border-b border-brand-100 bg-gradient-to-r from-brand-50/80 to-transparent px-4 pb-5 pt-5 sm:px-5">
+        <p className="text-[0.625rem] font-semibold uppercase tracking-widest text-brand-600">
           Аналіз на основі доступних даних
         </p>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-display text-lg font-bold tracking-tight text-white">
+            <h2 className="font-display text-lg font-bold tracking-tight text-ink">
               Швидка перевірка
             </h2>
-            <p className="mt-1.5 line-clamp-2 max-w-xl text-sm leading-relaxed text-white/65">
+            <p className="mt-1.5 line-clamp-2 max-w-xl text-sm leading-relaxed text-ink-soft">
               {summary}
             </p>
           </div>
@@ -489,7 +491,7 @@ function CompanyQuickCheckCard({
               <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
               {riskLabel}
             </span>
-            <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", confidenceBadgeOnDark)}>
+            <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", confidenceBadgeLight)}>
               Впевненість: {confidence}
             </span>
           </div>
@@ -1267,19 +1269,150 @@ function InterviewChecklistSection() {
   );
 }
 
+function CompanySidebarPanel({
+  companySlug,
+  facts,
+  externalRatings,
+  externalCompanySources,
+  openFacts,
+  openFactSummary,
+  externalReviewSignalSummary,
+  externalCompanySourceSummary,
+}: {
+  companySlug: string;
+  facts: PublishedCompanyReviewFacts;
+  externalRatings: ExternalRating[];
+  externalCompanySources: ExternalCompanySource[];
+  openFacts: CompanyOpenFact[];
+  openFactSummary: CompanyOpenFactSummary;
+  externalReviewSignalSummary: ExternalReviewSignalSummary;
+  externalCompanySourceSummary: ExternalCompanySourceSummary;
+}) {
+  const breakdown = getCompactSourceBreakdown({
+    facts, externalRatings, externalCompanySources,
+    openFacts, openFactSummary, externalReviewSignalSummary,
+  });
+  const dataLevel = getCompanyDataLevel(
+    facts,
+    externalRatings.length,
+    openFactSummary.factsCount,
+    externalReviewSignalSummary.signalCount,
+    externalCompanySourceSummary.sourceCount
+  );
+  const hasReputationData = breakdown.reputationSourcesTotal > 0;
+  const confidence = hasReputationData
+    ? dataLevel === "Є достатньо даних" ? "середня" : "низька"
+    : "низька";
+  const riskLabel = hasReputationData ? "Потребує перевірки" : "Недостатньо даних";
+
+  const sidebarQuestions = [
+    "Яка фіксована ставка і як виплачуються бонуси?",
+    "Чи є офіційне оформлення з першого дня?",
+    "Який фактичний графік і як оплачуються понаднормові?",
+    "Чи є бронювання або відстрочка і чи дають письмове підтвердження?",
+  ];
+
+  return (
+    <>
+      {/* Stats panel */}
+      <Card className="space-y-3 border-brand-100 bg-brand-50/20 p-4">
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-600">
+          Статистика
+        </p>
+        <div className="grid gap-2">
+          <MetricTile
+            label="Відгуки"
+            value={facts.reviewCount}
+            accent={facts.reviewCount > 0}
+          />
+          <MetricTile
+            label="Відкриті джерела"
+            value={breakdown.totalExternalSources}
+            accent={breakdown.totalExternalSources > 0}
+          />
+          <MetricTile
+            label="Зовнішні оцінки"
+            value={breakdown.ratingSourcesCount > 0 ? breakdown.ratingSourcesCount : "—"}
+            accent={breakdown.ratingSourcesCount > 0}
+          />
+        </div>
+        <div className={cn(
+          "rounded-xl border px-3 py-2.5",
+          dataLevel === "Поки недостатньо даних"
+            ? "border-amber-200 bg-amber-50/60"
+            : "border-brand-200 bg-brand-50/60"
+        )}>
+          <p className="text-[0.6875rem] font-medium text-ink-muted">Рівень даних</p>
+          <p className="mt-0.5 text-sm font-semibold text-ink">{dataLevelLabel(dataLevel)}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Badge tone={hasReputationData ? "warning" : "muted"} dot>
+            {riskLabel}
+          </Badge>
+          <Badge tone={confidence === "середня" ? "brand" : "muted"}>
+            Впевненість: {confidence}
+          </Badge>
+        </div>
+      </Card>
+
+      {/* Add review CTA */}
+      <div className="rounded-2xl border border-brand-200/60 bg-gradient-to-br from-brand-50/70 to-white p-4">
+        <p className="font-semibold text-ink">Допоможіть іншим кандидатам</p>
+        <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+          Анонімний відгук публікується тільки після модерації.
+        </p>
+        <Button
+          href={`/add-review?company=${encodeURIComponent(companySlug)}`}
+          variant="primary"
+          size="sm"
+          className="mt-3 w-full justify-center"
+        >
+          <PenLine className="h-4 w-4" /> Додати відгук
+        </Button>
+        <Button
+          href="/check-vacancy"
+          variant="outline"
+          size="sm"
+          className="mt-2 w-full justify-center"
+        >
+          <FileSearch className="h-4 w-4" /> Перевірити вакансію
+        </Button>
+      </div>
+
+      {/* Interview checklist */}
+      <Card className="space-y-3 border-brand-100 bg-brand-50/20 p-4">
+        <div>
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-600">
+            До співбесіди
+          </p>
+          <p className="mt-1 text-sm font-semibold text-ink">Що уточнити письмово</p>
+        </div>
+        <ul className="space-y-2">
+          {sidebarQuestions.map((q) => (
+            <li key={q} className="flex items-start gap-2 text-xs leading-relaxed text-ink-soft">
+              <span className="mt-[0.3rem] h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" />
+              {q}
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </>
+  );
+}
+
 function AddAnonymousReviewCta({ companySlug }: { companySlug: string }) {
   return (
-    <div className="rounded-2xl bg-gradient-to-br from-[#0f1f1a] to-[#1a3028] p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+    <div className="rounded-2xl border border-brand-200/60 bg-gradient-to-br from-brand-50/70 to-white p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
       <div>
-        <h2 className="font-display text-lg font-bold tracking-tight text-white">
+        <h2 className="font-display text-lg font-bold tracking-tight text-ink">
           Допоможіть іншим кандидатам
         </h2>
-        <p className="mt-1 text-sm text-white/65">
+        <p className="mt-1 text-sm text-ink-soft">
           Анонімний відгук відображається окремо від відкритих фактів і публікується тільки після модерації.
         </p>
       </div>
       <div className="mt-4 shrink-0 sm:mt-0">
-        <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="inverse" size="sm">
+        <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="primary" size="sm">
           <PenLine className="h-4 w-4" /> Додати відгук
         </Button>
       </div>
@@ -1726,62 +1859,83 @@ export default async function CompanyPage({
 
     // Supabase not configured — show name only with a prompt to add a review
     return (
-      <div className="container-page max-w-3xl space-y-6 py-8 sm:py-10">
-        <Card variant="elevated" className="relative overflow-hidden p-6 sm:p-8">
-          <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-2xl bg-gradient-to-r from-brand-400 via-brand-500 to-brand-600" />
+      <div className="container-page max-w-5xl py-8 sm:py-10">
+        {/* Header — full width */}
+        <Card variant="elevated" className="relative overflow-hidden bg-gradient-to-br from-brand-50/30 to-white p-6 sm:p-8">
+          <div className="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-gradient-to-r from-brand-400 via-brand-500 to-brand-600" />
           <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
             {mockFallback.name}
           </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-soft">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             {mockFallback.city && (
-              <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full border border-ink/[0.1] bg-ink/[0.025] px-2.5 py-0.5 text-sm text-ink-soft">
                 <MapPin className="h-3.5 w-3.5" /> {mockFallback.city}
               </span>
             )}
             {mockFallback.industry && (
-              <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full border border-ink/[0.1] bg-ink/[0.025] px-2.5 py-0.5 text-sm text-ink-soft">
                 <Briefcase className="h-3.5 w-3.5" /> {fallbackIndustry}
               </span>
             )}
           </div>
-          <div className="mt-4 border-t border-ink/[0.1] pt-4">
-            <div className="flex flex-wrap gap-2">
-              <Button href={`/add-review?company=${encodeURIComponent(slug)}`} size="sm">
-                <PenLine className="h-4 w-4" /> Додати відгук
-              </Button>
-              <Button href="/check-vacancy" variant="outline" size="sm">
-                <FileSearch className="h-4 w-4" /> Перевірити вакансію
-              </Button>
-            </div>
+          <div className="mt-4 border-t border-ink/[0.08] pt-4 flex flex-wrap gap-2">
+            <Button href={`/add-review?company=${encodeURIComponent(slug)}`} size="sm">
+              <PenLine className="h-4 w-4" /> Додати відгук
+            </Button>
+            <Button href="/check-vacancy" variant="outline" size="sm">
+              <FileSearch className="h-4 w-4" /> Перевірити вакансію
+            </Button>
           </div>
         </Card>
-        <CompanyQuickCheckCard
-          companyName={mockFallback.name}
-          facts={reviewFacts}
-          externalRatings={externalRatings}
-          externalCompanySources={externalCompanySources}
-          openFacts={openFacts}
-          openFactSummary={openFactSummary}
-          externalReviewSignalSummary={externalReviewSignalSummary}
-          externalCompanySourceSummary={externalCompanySourceSummary}
-        />
-        <ExternalCompanySourcesSection
-          sources={externalCompanySources}
-          openFacts={openFacts}
-        />
-        <CompanyReviewsCompactSection
-          companySlug={mockFallback.slug}
-          companyName={mockFallback.name}
-          reviewCount={reviewFacts.reviewCount}
-        />
-        <ExternalRatingsCompactSection
-          externalRatings={externalRatings}
-          externalCompanySources={externalCompanySources}
-        />
-        {externalReviewSignals.length > 0 && <ExternalReviewSignalsSection signals={externalReviewSignals} />}
-        <InterviewChecklistSection />
-        <AddAnonymousReviewCta companySlug={mockFallback.slug} />
-        <p className="text-center text-xs text-ink-muted">
+
+        {/* 2-column layout on desktop */}
+        <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_268px]">
+          {/* Main column */}
+          <div className="space-y-6">
+            <CompanyQuickCheckCard
+              companyName={mockFallback.name}
+              facts={reviewFacts}
+              externalRatings={externalRatings}
+              externalCompanySources={externalCompanySources}
+              openFacts={openFacts}
+              openFactSummary={openFactSummary}
+              externalReviewSignalSummary={externalReviewSignalSummary}
+              externalCompanySourceSummary={externalCompanySourceSummary}
+            />
+            <ExternalCompanySourcesSection
+              sources={externalCompanySources}
+              openFacts={openFacts}
+            />
+            <CompanyReviewsCompactSection
+              companySlug={mockFallback.slug}
+              companyName={mockFallback.name}
+              reviewCount={reviewFacts.reviewCount}
+            />
+            <ExternalRatingsCompactSection
+              externalRatings={externalRatings}
+              externalCompanySources={externalCompanySources}
+            />
+            {externalReviewSignals.length > 0 && (
+              <ExternalReviewSignalsSection signals={externalReviewSignals} />
+            )}
+          </div>
+
+          {/* Sidebar */}
+          <aside className="space-y-4 lg:self-start lg:sticky lg:top-8">
+            <CompanySidebarPanel
+              companySlug={mockFallback.slug}
+              facts={reviewFacts}
+              externalRatings={externalRatings}
+              externalCompanySources={externalCompanySources}
+              openFacts={openFacts}
+              openFactSummary={openFactSummary}
+              externalReviewSignalSummary={externalReviewSignalSummary}
+              externalCompanySourceSummary={externalCompanySourceSummary}
+            />
+          </aside>
+        </div>
+
+        <p className="mt-8 text-center text-xs text-ink-muted">
           Інформація про компанію формується на основі анонімних відгуків і не є офіційною
           оцінкою роботодавця.
         </p>
@@ -1812,71 +1966,83 @@ export default async function CompanyPage({
   ]);
 
   return (
-    <div className="container-page max-w-3xl space-y-6 py-8 sm:py-10">
-      {/* Header */}
+    <div className="container-page max-w-5xl py-8 sm:py-10">
+      {/* Header — full width */}
       <Card variant="elevated" className="relative overflow-hidden p-6 sm:p-8">
-        <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-2xl bg-gradient-to-r from-brand-400 via-brand-500 to-brand-600" />
+        <div className="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-gradient-to-r from-brand-400 via-brand-500 to-brand-600" />
         <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
           {sbCompany.name}
         </h1>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-soft">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           {sbCompany.city && (
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full border border-ink/[0.1] bg-ink/[0.025] px-2.5 py-0.5 text-sm text-ink-soft">
               <MapPin className="h-3.5 w-3.5" /> {sbCompany.city}
             </span>
           )}
           {industry && (
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full border border-ink/[0.1] bg-ink/[0.025] px-2.5 py-0.5 text-sm text-ink-soft">
               <Briefcase className="h-3.5 w-3.5" /> {industry}
             </span>
           )}
         </div>
-        <div className="mt-4 border-t border-ink/[0.1] pt-4">
-          <div className="flex flex-wrap gap-2">
-            <Button href={`/add-review?company=${encodeURIComponent(sbCompany.slug)}`} size="sm">
-              <PenLine className="h-4 w-4" /> Додати відгук
-            </Button>
-            <Button href="/check-vacancy" variant="outline" size="sm">
-              <FileSearch className="h-4 w-4" /> Перевірити вакансію
-            </Button>
-          </div>
+        <div className="mt-4 border-t border-ink/[0.08] pt-4 flex flex-wrap gap-2">
+          <Button href={`/add-review?company=${encodeURIComponent(sbCompany.slug)}`} size="sm">
+            <PenLine className="h-4 w-4" /> Додати відгук
+          </Button>
+          <Button href="/check-vacancy" variant="outline" size="sm">
+            <FileSearch className="h-4 w-4" /> Перевірити вакансію
+          </Button>
         </div>
       </Card>
 
-      <CompanyQuickCheckCard
-        companyName={sbCompany.name}
-        facts={reviewFacts}
-        externalRatings={externalRatings}
-        externalCompanySources={externalCompanySources}
-        openFacts={openFacts}
-        openFactSummary={openFactSummary}
-        externalReviewSignalSummary={externalReviewSignalSummary}
-        externalCompanySourceSummary={externalCompanySourceSummary}
-      />
+      {/* 2-column layout on desktop */}
+      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_268px]">
+        {/* Main column */}
+        <div className="space-y-6">
+          <CompanyQuickCheckCard
+            companyName={sbCompany.name}
+            facts={reviewFacts}
+            externalRatings={externalRatings}
+            externalCompanySources={externalCompanySources}
+            openFacts={openFacts}
+            openFactSummary={openFactSummary}
+            externalReviewSignalSummary={externalReviewSignalSummary}
+            externalCompanySourceSummary={externalCompanySourceSummary}
+          />
+          <ExternalCompanySourcesSection
+            sources={externalCompanySources}
+            openFacts={openFacts}
+          />
+          <CompanyReviewsCompactSection
+            companySlug={sbCompany.slug}
+            companyName={sbCompany.name}
+            reviewCount={reviewFacts.reviewCount}
+          />
+          <ExternalRatingsCompactSection
+            externalRatings={externalRatings}
+            externalCompanySources={externalCompanySources}
+          />
+          {externalReviewSignals.length > 0 && (
+            <ExternalReviewSignalsSection signals={externalReviewSignals} />
+          )}
+        </div>
 
-      <ExternalCompanySourcesSection
-        sources={externalCompanySources}
-        openFacts={openFacts}
-      />
+        {/* Sidebar */}
+        <aside className="space-y-4 lg:self-start lg:sticky lg:top-8">
+          <CompanySidebarPanel
+            companySlug={sbCompany.slug}
+            facts={reviewFacts}
+            externalRatings={externalRatings}
+            externalCompanySources={externalCompanySources}
+            openFacts={openFacts}
+            openFactSummary={openFactSummary}
+            externalReviewSignalSummary={externalReviewSignalSummary}
+            externalCompanySourceSummary={externalCompanySourceSummary}
+          />
+        </aside>
+      </div>
 
-      <CompanyReviewsCompactSection
-        companySlug={sbCompany.slug}
-        companyName={sbCompany.name}
-        reviewCount={reviewFacts.reviewCount}
-      />
-
-      <ExternalRatingsCompactSection
-        externalRatings={externalRatings}
-        externalCompanySources={externalCompanySources}
-      />
-
-      {externalReviewSignals.length > 0 && <ExternalReviewSignalsSection signals={externalReviewSignals} />}
-
-      <InterviewChecklistSection />
-
-      <AddAnonymousReviewCta companySlug={sbCompany.slug} />
-
-      <p className="text-center text-xs text-ink-muted">
+      <p className="mt-8 text-center text-xs text-ink-muted">
         Інформація про компанію формується на основі анонімних відгуків і не є офіційною
         оцінкою роботодавця.
       </p>

@@ -41,7 +41,7 @@ const config: Config = {
         display: ["var(--font-display)", "system-ui", "sans-serif"],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(15,31,26,0.04), 0 8px 24px -12px rgba(15,31,26,0.12)",
+        card: "0 1px 3px rgba(15,31,26,0.06), 0 4px 16px -4px rgba(15,31,26,0.10)",
         "card-hover": "0 2px 4px rgba(15,31,26,0.06), 0 16px 40px -16px rgba(15,31,26,0.18)",
         "card-elevated": "0 2px 4px rgba(15,31,26,0.06), 0 24px 48px -12px rgba(15,31,26,0.18), 0 0 0 1px rgba(15,31,26,0.03)",
         "glow-brand": "0 0 0 3px rgba(5,150,105,0.15), 0 0 0 1px rgba(5,150,105,0.1)",

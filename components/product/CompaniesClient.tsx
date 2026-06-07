@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { CompanyCard, CompanyCardSlim } from "@/components/product/CompanyCard";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { SectionTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { slugifyCompanyName } from "@/lib/slugify";
@@ -21,19 +20,14 @@ interface Props {
   companies: CompanyListItem[];
   cities: string[];
   industries: string[];
-  /** Per-slug review metrics from Supabase, computed server-side. */
   metrics: ReviewMetricsBySlug;
-  /** Per-slug public external rating summaries, computed server-side. */
   externalRatingSummaries: ExternalRatingSummaryBySlug;
-  /** Per-slug public open vacancy facts summaries, computed server-side. */
   openFactSummaries: CompanyOpenFactSummaryBySlug;
-  /** Per-slug public external review signal summaries, computed server-side. */
   externalReviewSignalSummaries: ExternalReviewSignalSummaryBySlug;
-  /** Per-slug public external company source summaries, computed server-side. */
   externalCompanySourceSummaries: ExternalCompanySourceSummaryBySlug;
 }
 
-// ── Search helpers (preserved from previous version) ─────────────────────────
+// ── Search helpers ─────────────────────────────────────────────────────────────
 
 function wordStartsWith(text: string, q: string): boolean {
   if (!q) return false;
@@ -86,10 +80,10 @@ function FilterChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+        "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
         active
           ? "border-brand-400 bg-brand-50 text-brand-700"
-          : "border-ink/12 bg-white text-ink-soft hover:border-brand-200 hover:text-ink"
+          : "border-ink/[0.12] bg-white text-ink-soft hover:border-brand-200 hover:text-ink"
       )}
     >
       {children}
@@ -120,9 +114,6 @@ export function CompaniesClient({
   const [onlyPaidInternship, setOnlyPaidInternship] = useState(false);
 
   // ── Filter availability ───────────────────────────────────────────────────
-  // A chip is shown only when at least one company in the current list would
-  // satisfy it. We check this once against ALL companies (not filtered), so
-  // chips don't disappear while the user is interacting with other filters.
   const filterAvailability = useMemo(() => {
     let hasReviews = false;
     let hasHighRating = false;
@@ -173,22 +164,17 @@ export function CompaniesClient({
     const slugQuery = rawQuery ? slugifyCompanyName(rawQuery) : "";
 
     return companies.filter((item) => {
-      // Search
       if (!matchesSearch(item, rawQuery, slugQuery)) return false;
 
-      // City
       const itemCity = item.data.city ?? "";
       if (city !== "all" && itemCity !== city) return false;
 
-      // Industry (normalized comparison)
       const rawInd =
         item.source === "mock" ? item.data.industry : (item.data.industry ?? "");
       const normInd = normalizeIndustry(rawInd);
       if (industry !== "all" && normInd !== industry) return false;
 
-      // Chip filters — use server-computed metrics
       const m = metrics[item.data.slug ?? ""];
-
       if (onlyWithReviews && (!m || m.reviewCount === 0)) return false;
       if (onlyHighRating && (!m || !m.hasHighRating)) return false;
       if (onlyRisky && (!m || !m.hasRisks)) return false;
@@ -204,105 +190,127 @@ export function CompaniesClient({
     onlyOfficial, onlyBooking, onlyPaidInternship,
   ]);
 
-  const selectCls = "rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm focus-ring";
+  const selectCls =
+    "rounded-lg border border-ink/[0.12] bg-white px-3 py-1.5 text-xs text-ink-soft focus-ring";
+
+  const hasChips =
+    filterAvailability.hasReviews ||
+    filterAvailability.hasHighRating ||
+    filterAvailability.hasRisky ||
+    filterAvailability.hasOfficial ||
+    filterAvailability.hasBooking ||
+    filterAvailability.hasPaidInternship;
 
   return (
     <div className="container-page py-10">
-      <SectionTitle
-        eyebrow="Каталог"
-        title="Відгуки про роботодавців"
-        description="Оберіть компанію, щоб побачити рівень довіри, реальність зарплати та умови оформлення."
-      />
 
-      {/* ── Filter panel ─────────────────────────────────────────────────── */}
-      <div className="mt-6 space-y-3 rounded-2xl border border-ink/[0.06] bg-white p-4 shadow-card">
+      {/* ── Hero search zone ──────────────────────────────────────────────── */}
+      <div className="overflow-hidden rounded-2xl border border-ink/[0.08] bg-white shadow-card-elevated">
 
-        {/* Search */}
-        <div className="flex items-center gap-2 rounded-xl border border-ink/[0.12] px-3 transition-all duration-200 focus-within:border-brand-300 focus-within:shadow-glow-brand">
-          <Search className="h-4 w-4 shrink-0 text-ink-muted" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Пошук за назвою, сферою або містом"
-            className="w-full bg-transparent py-2.5 text-sm focus:outline-none placeholder:text-ink-muted/60"
-          />
-          {query && (
-            <button type="button" onClick={() => setQuery("")} className="text-ink-muted hover:text-ink">
-              <X className="h-4 w-4" />
-            </button>
-          )}
+        {/* Header: eyebrow + title + search */}
+        <div className="px-6 pb-5 pt-6">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-600">
+            Каталог
+          </p>
+          <h1 className="mt-1.5 font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+            Відгуки про роботодавців
+          </h1>
+          <p className="mt-1.5 max-w-lg text-sm text-ink-soft">
+            Перевірте умови роботи, зарплату та оформлення ще до співбесіди.
+          </p>
+
+          {/* Search input */}
+          <div className="mt-4 flex items-center gap-3 rounded-xl border-2 border-ink/[0.15] bg-ink/[0.02] px-4 py-3 transition-all focus-within:border-brand-400 focus-within:bg-white focus-within:shadow-glow-brand">
+            <Search className="h-5 w-5 shrink-0 text-ink-muted" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Назва компанії, сфера або місто"
+              className="w-full bg-transparent text-base focus:outline-none placeholder:text-ink-muted/60"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="text-ink-muted hover:text-ink"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Selects */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5 text-sm text-ink-muted">
-            <SlidersHorizontal className="h-4 w-4" />
-            <span>Фільтри:</span>
-          </div>
+        {/* Filter toolbar */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-ink/[0.06] bg-ink/[0.015] px-6 py-3">
+          <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Фільтри:
+          </span>
           {cities.length > 0 && (
-            <select value={city} onChange={(e) => setCity(e.target.value)} className={selectCls}>
+            <select
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              className={selectCls}
+            >
               <option value="all">Усі міста</option>
               {cities.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           )}
           {industries.length > 0 && (
-            <select value={industry} onChange={(e) => setIndustry(e.target.value)} className={selectCls}>
+            <select
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+              className={selectCls}
+            >
               <option value="all">Усі сфери</option>
               {industries.map((i) => <option key={i} value={i}>{i}</option>)}
             </select>
           )}
+          {hasChips && (
+            <>
+              {filterAvailability.hasReviews && (
+                <FilterChip active={onlyWithReviews} onClick={() => setOnlyWithReviews((v) => !v)}>
+                  Є відгуки
+                </FilterChip>
+              )}
+              {filterAvailability.hasHighRating && (
+                <FilterChip active={onlyHighRating} onClick={() => setOnlyHighRating((v) => !v)}>
+                  Оцінка 4+
+                </FilterChip>
+              )}
+              {filterAvailability.hasOfficial && (
+                <FilterChip active={onlyOfficial} onClick={() => setOnlyOfficial((v) => !v)}>
+                  Офіційне оформлення
+                </FilterChip>
+              )}
+              {filterAvailability.hasBooking && (
+                <FilterChip active={onlyBooking} onClick={() => setOnlyBooking((v) => !v)}>
+                  Бронювання
+                </FilterChip>
+              )}
+              {filterAvailability.hasPaidInternship && (
+                <FilterChip active={onlyPaidInternship} onClick={() => setOnlyPaidInternship((v) => !v)}>
+                  Оплачуване стажування
+                </FilterChip>
+              )}
+              {filterAvailability.hasRisky && (
+                <FilterChip active={onlyRisky} onClick={() => setOnlyRisky((v) => !v)}>
+                  Можливі ризики
+                </FilterChip>
+              )}
+            </>
+          )}
         </div>
-
-        {/* Chip filters — only rendered when there's backing data */}
-        {(filterAvailability.hasReviews ||
-          filterAvailability.hasHighRating ||
-          filterAvailability.hasRisky ||
-          filterAvailability.hasOfficial ||
-          filterAvailability.hasBooking ||
-          filterAvailability.hasPaidInternship) && (
-          <div className="flex flex-wrap gap-2 border-t border-ink/[0.06] pt-3">
-            {filterAvailability.hasReviews && (
-              <FilterChip active={onlyWithReviews} onClick={() => setOnlyWithReviews((v) => !v)}>
-                Є відгуки
-              </FilterChip>
-            )}
-            {filterAvailability.hasHighRating && (
-              <FilterChip active={onlyHighRating} onClick={() => setOnlyHighRating((v) => !v)}>
-                Висока оцінка (4+)
-              </FilterChip>
-            )}
-            {filterAvailability.hasOfficial && (
-              <FilterChip active={onlyOfficial} onClick={() => setOnlyOfficial((v) => !v)}>
-                Офіційне оформлення
-              </FilterChip>
-            )}
-            {filterAvailability.hasBooking && (
-              <FilterChip active={onlyBooking} onClick={() => setOnlyBooking((v) => !v)}>
-                Підтверджене бронювання
-              </FilterChip>
-            )}
-            {filterAvailability.hasPaidInternship && (
-              <FilterChip active={onlyPaidInternship} onClick={() => setOnlyPaidInternship((v) => !v)}>
-                Оплачуване стажування
-              </FilterChip>
-            )}
-            {filterAvailability.hasRisky && (
-              <FilterChip active={onlyRisky} onClick={() => setOnlyRisky((v) => !v)}>
-                Можливі ризики
-              </FilterChip>
-            )}
-          </div>
-        )}
       </div>
 
       {/* ── Result bar ───────────────────────────────────────────────────── */}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-muted">
-          Знайдено компаній:{" "}
-          <span className="rounded-md bg-brand-50 px-2 py-0.5 text-sm font-semibold text-brand-700">
-            {filtered.length}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-ink-muted">Знайдено</span>
+          <span className="inline-flex items-center rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-sm font-bold tabular-nums text-brand-700">
+            {filtered.length} {filtered.length === 1 ? "компанія" : filtered.length < 5 ? "компанії" : "компаній"}
           </span>
-        </p>
+        </div>
         {anyFilterActive && (
           <Button variant="outline" size="sm" onClick={resetFilters}>
             <X className="h-3.5 w-3.5" /> Скинути фільтри
@@ -310,7 +318,7 @@ export function CompaniesClient({
         )}
       </div>
 
-      {/* ── Company list ─────────────────────────────────────────────────── */}
+      {/* ── Company grid ─────────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
         <EmptyState
           className="mt-4"
@@ -319,7 +327,7 @@ export function CompaniesClient({
           description="Спробуйте змінити фільтри або пошуковий запит."
           action={
             anyFilterActive ? (
-              <Button variant="secondary" onClick={resetFilters}>Скинути фільтри</Button>
+              <Button variant="outline" onClick={resetFilters}>Скинути фільтри</Button>
             ) : undefined
           }
         />

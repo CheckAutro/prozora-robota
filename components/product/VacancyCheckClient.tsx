@@ -7,6 +7,7 @@ import {
   Briefcase,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleHelp,
   ExternalLink,
@@ -370,7 +371,7 @@ function DetailItem({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-ink/[0.06] bg-white px-4 py-3">
+    <div className="rounded-xl border border-ink/[0.07] bg-[#f4f7f5] px-4 py-3">
       <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-ink-muted">
         {icon}
         {label}
@@ -1074,8 +1075,11 @@ function ResultReport({ report }: { report: VacancyReport }) {
       <VacancySummary report={report} />
       <VacancyBriefSection brief={report.analysis.vacancyBrief} />
       <details className="rounded-2xl border border-ink/[0.06] bg-white p-4 sm:p-5">
-        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
+        <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-ink">
           Показати повний звіт
+          <span className="accordion-chevron text-ink-muted">
+            <ChevronDown className="h-4 w-4" />
+          </span>
         </summary>
         <div className="mt-4 space-y-4">
           <FreeSummarySection summary={report.analysis.freeSummary} />
@@ -1177,65 +1181,74 @@ export function VacancyCheckClient() {
   }
 
   return (
-    <div className="container-page max-w-4xl space-y-8 py-8 sm:py-10">
-      <SectionTitle
-        eyebrow="Перевірка вакансії"
-        title="Перевірити вакансію"
-        description="Вставте посилання або текст вакансії — система перевірить компанію, відкриті джерела, відгуки та ризики."
-      />
+    <div className="container-page max-w-4xl space-y-8 py-10 sm:py-14">
 
-      <AiVacancyAnalysisSection initialCompanyName={companyParam} />
-
-      <Card variant="elevated" className="space-y-4 p-6">
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
-            <ShieldCheck className="h-5 w-5" />
-          </span>
-          <div>
-            <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка</h2>
-            <p className="mt-0.5 text-sm text-ink-soft">
-              Детермінований аналіз тексту вакансії, компанії в базі та відкритих даних сайту.
-            </p>
-          </div>
+      {/* ── Feature hero input zone ───────────────────────────────────────── */}
+      <div className="overflow-hidden rounded-2xl border border-brand-200/60 bg-gradient-to-br from-brand-50/60 to-white shadow-card-elevated">
+        <div className="px-6 pb-6 pt-7 sm:px-8 sm:pt-8">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-600">
+            Перевірка вакансії
+          </p>
+          <h1 className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+            Перевірити вакансію
+          </h1>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
+            Вставте посилання або текст вакансії — система перевірить компанію, відкриті джерела, відгуки та ризики.
+          </p>
         </div>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void handleCheck();
-          }}
-          rows={5}
-          placeholder="Вставте посилання Work.ua / Robota.ua, назву компанії або текст вакансії"
-          className="w-full resize-y rounded-xl border border-ink/[0.15] bg-white px-4 py-3 text-sm focus-ring placeholder:text-ink-muted/60 transition-colors focus:border-brand-300"
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            onClick={() => void handleCheck()}
-            disabled={input.trim().length < 2 || stage.type === "loading"}
-            size="lg"
-          >
-            {stage.type === "loading" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Search className="h-4 w-4" />
-            )}
-            {stage.type === "loading" ? "Аналізуємо…" : "Перевірити"}
-          </Button>
-          {stage.type !== "idle" && stage.type !== "loading" && (
-            <Button variant="secondary" onClick={handleReset}>
-              <RefreshCw className="h-4 w-4" /> Нова перевірка
+
+        <div className="border-t border-brand-100/80 bg-white/60 px-6 py-6 sm:px-8">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void handleCheck();
+            }}
+            rows={5}
+            placeholder="Вставте посилання Work.ua / Robota.ua, назву компанії або текст вакансії"
+            className="w-full resize-y rounded-xl border-2 border-ink/[0.15] bg-white px-5 py-4 text-base focus-ring placeholder:text-ink-muted/60 transition-colors focus:border-brand-400"
+          />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => void handleCheck()}
+              disabled={input.trim().length < 2 || stage.type === "loading"}
+              size="lg"
+            >
+              {stage.type === "loading" ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Search className="h-5 w-5" />
+              )}
+              {stage.type === "loading" ? "Аналізуємо…" : "Перевірити вакансію"}
             </Button>
-          )}
+            {stage.type !== "idle" && stage.type !== "loading" && (
+              <Button variant="outline" onClick={handleReset}>
+                <RefreshCw className="h-4 w-4" /> Нова перевірка
+              </Button>
+            )}
+          </div>
+          <p className="mt-3 text-xs text-ink-muted">
+            Натисніть Ctrl+Enter, щоб перевірити. Work.ua та Robota.ua читаються тільки
+            звичайним fetch; якщо сторінка не відкриється, вставте текст вакансії вручну.
+          </p>
         </div>
-        <p className="text-xs text-ink-muted">
-          Натисніть Ctrl+Enter, щоб перевірити. Work.ua та Robota.ua читаються тільки
-          звичайним fetch; якщо сторінка не відкриється, вставте текст вакансії вручну.
-        </p>
-      </Card>
+      </div>
+
+      <details className="rounded-2xl border border-ink/[0.07] bg-white shadow-card">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-semibold text-ink">
+          Розширена перевірка
+          <span className="accordion-chevron text-ink-muted">
+            <ChevronDown className="h-4 w-4" />
+          </span>
+        </summary>
+        <div className="border-t border-ink/[0.06]">
+          <AiVacancyAnalysisSection initialCompanyName={companyParam} />
+        </div>
+      </details>
 
       {stage.type === "loading" && (
-        <div className="flex items-center gap-2 text-sm text-ink-muted">
+        <div className="flex items-center gap-3 rounded-xl border border-ink/[0.07] bg-ink/[0.025] px-4 py-3 text-sm text-ink-muted">
           <Loader2 className="h-4 w-4 animate-spin text-brand-600" />
           Аналізуємо вакансію та шукаємо компанію в базі…
         </div>

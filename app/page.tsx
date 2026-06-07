@@ -23,6 +23,7 @@ import { HeroAnimator } from "@/components/animations/HeroAnimator";
 import { StaggerGrid } from "@/components/animations/StaggerGrid";
 import { FadeInSection } from "@/components/animations/FadeInSection";
 import { getServerClient } from "@/lib/supabase/server";
+import { COMPANIES } from "@/lib/mock-data";
 import { normalizeIndustry } from "@/lib/industry";
 import type { Review } from "@/lib/types";
 import { fromRow } from "@/lib/storage";
@@ -34,7 +35,7 @@ export const revalidate = 300;
 
 const FEATURED_SLUGS = [
   "nova-poshta", "atb", "silpo", "eva",
-  "rozetka", "a-bank", "pryvatbank", "glovo",
+  "rozetka", "ukrposhta", "varus", "comfy",
 ];
 
 interface FeaturedCompany {
@@ -43,6 +44,12 @@ interface FeaturedCompany {
   city: string | null;
   industry: string | null;
 }
+
+const STATIC_FEATURED: FeaturedCompany[] = FEATURED_SLUGS.flatMap((slug) => {
+  const c = COMPANIES.find((m) => m.slug === slug);
+  if (!c) return [];
+  return [{ name: c.name, slug: c.slug, city: c.city ?? null, industry: c.industry ?? null }];
+});
 
 async function getFeaturedCompanies(): Promise<FeaturedCompany[]> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -107,10 +114,11 @@ const TYPE_LABEL: Record<string, string> = {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function HomePage() {
-  const [featuredCompanies, recentReviews] = await Promise.all([
+  const [featuredFromDb, recentReviews] = await Promise.all([
     getFeaturedCompanies(),
     getRecentPublishedReviews(),
   ]);
+  const featuredCompanies = featuredFromDb.length > 0 ? featuredFromDb : STATIC_FEATURED;
 
   return (
     <div className="container-page space-y-20 pb-20">
