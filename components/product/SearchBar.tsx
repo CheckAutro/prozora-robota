@@ -27,7 +27,7 @@ export function SearchBar({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 sm:flex-row sm:items-center rounded-2xl border border-ink/10 bg-white p-2 shadow-card",
+        "flex flex-col gap-2 sm:flex-row sm:items-center rounded-2xl border border-ink/[0.12] bg-white p-2 shadow-card transition-all duration-200 focus-within:border-brand-300 focus-within:shadow-glow-brand",
         size === "lg" ? "sm:p-2.5" : ""
       )}
     >
@@ -39,7 +39,7 @@ export function SearchBar({
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           placeholder={placeholder}
           className={cn(
-            "w-full bg-transparent text-ink placeholder:text-ink-muted/70 focus:outline-none",
+            "w-full bg-transparent text-ink placeholder:text-ink-muted/60 focus:outline-none",
             size === "lg" ? "py-2.5 text-base" : "py-2 text-sm"
           )}
           aria-label="Пошук роботодавця або вакансії"
@@ -48,8 +48,9 @@ export function SearchBar({
       <button
         onClick={handleSubmit}
         className={cn(
-          "rounded-xl bg-brand-600 font-semibold text-white transition-colors hover:bg-brand-700 focus-ring",
-          size === "lg" ? "px-7 py-3 text-base" : "px-5 py-2.5 text-sm"
+          "rounded-xl bg-brand-600 font-semibold text-white transition-all hover:bg-brand-700 active:bg-brand-800 active:scale-[0.98] focus-ring",
+          size === "lg" ? "px-7 py-3 text-base" : "px-5 py-2.5 text-sm",
+          "w-full sm:w-auto"
         )}
       >
         Перевірити

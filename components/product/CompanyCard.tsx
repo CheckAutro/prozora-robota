@@ -207,7 +207,7 @@ function CompanyCardInner({
 
       <div className="flex items-center justify-between gap-3 border-t border-ink/[0.06] pt-4">
         <span className="text-xs text-ink-muted">Деталі доступні на сторінці компанії.</span>
-        <Button href={`/companies/${slug}`} variant="outline" size="sm">
+        <Button href={`/companies/${slug}`} variant="primary" size="sm">
           Переглянути <ChevronRight className="h-4 w-4" />
         </Button>
       </div>

@@ -218,13 +218,13 @@ export function CompaniesClient({
       <div className="mt-6 space-y-3 rounded-2xl border border-ink/[0.06] bg-white p-4 shadow-card">
 
         {/* Search */}
-        <div className="flex items-center gap-2 rounded-xl border border-ink/10 px-3">
+        <div className="flex items-center gap-2 rounded-xl border border-ink/[0.12] px-3 transition-all duration-200 focus-within:border-brand-300 focus-within:shadow-glow-brand">
           <Search className="h-4 w-4 shrink-0 text-ink-muted" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Пошук за назвою, сферою або містом"
-            className="w-full bg-transparent py-2.5 text-sm focus:outline-none"
+            className="w-full bg-transparent py-2.5 text-sm focus:outline-none placeholder:text-ink-muted/60"
           />
           {query && (
             <button type="button" onClick={() => setQuery("")} className="text-ink-muted hover:text-ink">
@@ -299,7 +299,9 @@ export function CompaniesClient({
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
           Знайдено компаній:{" "}
-          <span className="font-semibold text-ink">{filtered.length}</span>
+          <span className="rounded-md bg-brand-50 px-2 py-0.5 text-sm font-semibold text-brand-700">
+            {filtered.length}
+          </span>
         </p>
         {anyFilterActive && (
           <Button variant="outline" size="sm" onClick={resetFilters}>

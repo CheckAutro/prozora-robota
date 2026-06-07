@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ClipboardList,
   FileText,
+  FileSearch,
   Star,
 } from "lucide-react";
 
@@ -589,12 +590,12 @@ function PreliminaryConclusion({
       : "Даних поки недостатньо.";
 
   return (
-    <Card className="space-y-4 border-brand-100 bg-brand-50/40 p-5">
+    <Card className="space-y-5 border-brand-200 bg-brand-50 p-6 sm:p-7">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-700">
           Попередній висновок
         </p>
-        <p className="mt-2 text-base font-semibold leading-relaxed text-ink">
+        <p className="mt-2 text-base font-semibold leading-relaxed text-ink text-balance">
           {conclusion}
         </p>
       </div>
@@ -1239,11 +1240,11 @@ export default async function CompanyPage({
     // Supabase not configured — show name only with a prompt to add a review
     return (
       <div className="container-page max-w-3xl space-y-6 py-8 sm:py-10">
-        <Card className="p-6">
-          <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">
+        <Card variant="elevated" className="p-6 sm:p-8">
+          <h1 className="font-display text-3xl font-bold text-ink sm:text-4xl">
             {mockFallback.name}
           </h1>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-soft">
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-ink-soft">
             {mockFallback.city && (
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="h-4 w-4" /> {mockFallback.city}
@@ -1255,10 +1256,15 @@ export default async function CompanyPage({
               </span>
             )}
           </div>
-          <div className="mt-5">
-            <Button href={`/add-review?company=${encodeURIComponent(slug)}`}>
-              <PenLine className="h-4 w-4" /> Додати відгук
-            </Button>
+          <div className="mt-5 border-t border-ink/[0.06] pt-5">
+            <div className="flex flex-wrap gap-2">
+              <Button href={`/add-review?company=${encodeURIComponent(slug)}`}>
+                <PenLine className="h-4 w-4" /> Додати відгук
+              </Button>
+              <Button href="/check-vacancy" variant="outline">
+                <FileSearch className="h-4 w-4" /> Перевірити вакансію
+              </Button>
+            </div>
           </div>
         </Card>
         <AiCompanyAnalysisPanel
@@ -1350,11 +1356,11 @@ export default async function CompanyPage({
   return (
     <div className="container-page max-w-3xl space-y-6 py-8 sm:py-10">
       {/* Header */}
-      <Card className="p-6">
-        <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">
+      <Card variant="elevated" className="p-6 sm:p-8">
+        <h1 className="font-display text-3xl font-bold text-ink sm:text-4xl">
           {sbCompany.name}
         </h1>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-soft">
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-ink-soft">
           {sbCompany.city && (
             <span className="inline-flex items-center gap-1.5">
               <MapPin className="h-4 w-4" /> {sbCompany.city}
@@ -1366,10 +1372,15 @@ export default async function CompanyPage({
             </span>
           )}
         </div>
-        <div className="mt-5">
-          <Button href={`/add-review?company=${encodeURIComponent(sbCompany.slug)}`}>
-            <PenLine className="h-4 w-4" /> Додати відгук
-          </Button>
+        <div className="mt-5 border-t border-ink/[0.06] pt-5">
+          <div className="flex flex-wrap gap-2">
+            <Button href={`/add-review?company=${encodeURIComponent(sbCompany.slug)}`}>
+              <PenLine className="h-4 w-4" /> Додати відгук
+            </Button>
+            <Button href="/check-vacancy" variant="outline">
+              <FileSearch className="h-4 w-4" /> Перевірити вакансію
+            </Button>
+          </div>
         </div>
       </Card>
 

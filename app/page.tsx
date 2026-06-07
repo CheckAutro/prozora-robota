@@ -14,6 +14,7 @@ import {
   MapPin,
   Briefcase,
   Calendar,
+  ChevronRight,
 } from "lucide-react";
 import { SearchBar } from "@/components/product/SearchBar";
 import { Button } from "@/components/ui/Button";
@@ -114,16 +115,16 @@ export default async function HomePage() {
   return (
     <div className="container-page space-y-20 pb-20">
       {/* ── Hero ──────────────────────────────────────────────────────── */}
-      <section className="py-12 sm:py-20">
-        <HeroAnimator className="mx-auto max-w-3xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+      <section className="hero-section relative py-16 sm:py-28">
+        <HeroAnimator className="relative z-10 mx-auto max-w-3xl text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5 text-xs font-semibold text-brand-700">
             <ShieldCheck className="h-3.5 w-3.5" /> Анонімно · Для України
           </span>
-          <h1 className="mt-5 font-display text-4xl font-bold leading-[1.1] tracking-tight text-ink sm:text-5xl">
+          <h1 className="mt-5 font-display text-5xl font-bold leading-[1.08] tracking-tight text-ink text-balance sm:text-6xl">
             Перевірте роботодавця{" "}
             <span className="text-brand-600">перед відгуком на вакансію</span>
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base text-ink-soft sm:text-lg">
+          <p className="mx-auto mt-5 max-w-2xl text-base text-ink-soft text-balance sm:text-lg">
             Прозора робота допомагає кандидатам перевіряти компанії, зарплати,
             оформлення, бронювання та ризики ще до співбесіди.
           </p>
@@ -147,17 +148,17 @@ export default async function HomePage() {
       </section>
 
       <section>
-        <Card className="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+        <Card variant="elevated" className="flex flex-col gap-5 p-7 sm:flex-row sm:items-center sm:justify-between sm:p-8">
           <div className="max-w-2xl">
-            <h2 className="font-display text-2xl font-bold text-ink">
+            <h2 className="font-display text-2xl font-bold text-ink sm:text-3xl">
               Перевірте вакансію перед відгуком
             </h2>
-            <p className="mt-2 text-sm leading-relaxed text-ink-soft sm:text-base">
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft sm:text-base text-balance">
               Вставте посилання або текст вакансії — ми покажемо ризики, що відомо
               про компанію, які є відгуки та що уточнити перед співбесідою.
             </p>
           </div>
-          <Button href="/check-vacancy" size="lg" className="justify-center">
+          <Button href="/check-vacancy" size="lg" className="justify-center shrink-0">
             <FileSearch className="h-4 w-4" /> Перевірити вакансію
           </Button>
         </Card>
@@ -199,11 +200,16 @@ export default async function HomePage() {
                 href={`/companies/${c.slug}`}
                 className="group focus-ring rounded-2xl"
               >
-                <Card className="h-full p-5 transition-shadow group-hover:shadow-card-hover">
-                  <p className="font-display font-bold text-ink group-hover:text-brand-700">
-                    {c.name}
-                  </p>
-                  <div className="mt-1 space-y-0.5">
+                <Card className="h-full p-5 transition-all duration-200 group-hover:shadow-card-hover group-hover:-translate-y-0.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-display font-bold text-ink group-hover:text-brand-700">
+                      {c.name}
+                    </p>
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                      <Building2 className="h-3.5 w-3.5" />
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-0.5">
                     {c.industry && (
                       <p className="flex items-center gap-1 text-xs text-ink-muted">
                         <Briefcase className="h-3 w-3" />
@@ -216,8 +222,8 @@ export default async function HomePage() {
                       </p>
                     )}
                   </div>
-                  <p className="mt-3 text-xs font-semibold text-brand-700">
-                    Переглянути →
+                  <p className="mt-3 flex items-center gap-0.5 text-xs font-semibold text-brand-700 transition-transform duration-150 group-hover:translate-x-0.5">
+                    Переглянути <ChevronRight className="h-3.5 w-3.5" />
                   </p>
                 </Card>
               </Link>
@@ -289,28 +295,36 @@ export default async function HomePage() {
 
       {/* ── Блок довіри ───────────────────────────────────────────────── */}
       <section>
-        <FadeInSection className="rounded-2xl border border-ink/[0.06] bg-white p-6 sm:p-8">
-          <h2 className="font-display text-lg font-bold text-ink">
+        <FadeInSection className="rounded-2xl border border-ink/[0.06] bg-white p-6 sm:p-10">
+          <h2 className="font-display text-xl font-bold text-ink sm:text-2xl">
             Як ми дбаємо про конфіденційність
           </h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="mt-6 grid gap-6 sm:grid-cols-3">
             {[
               {
                 icon: ShieldCheck,
+                heading: "Анонімно та безпечно",
                 text: "Відгуки публікуються анонімно після модерації.",
               },
               {
                 icon: FileX,
+                heading: "Без особистих даних",
                 text: "Ми не публікуємо телефони, email, Telegram або інші персональні дані.",
               },
               {
                 icon: CheckCircle2,
+                heading: "Чесна платформа",
                 text: "Оцінки не є юридичним висновком.",
               },
-            ].map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-start gap-3">
-                <Icon className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
-                <p className="text-sm text-ink-soft">{text}</p>
+            ].map(({ icon: Icon, heading, text }) => (
+              <div key={heading} className="flex items-start gap-4">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="font-semibold text-ink">{heading}</p>
+                  <p className="mt-1 text-sm text-ink-soft">{text}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -319,19 +333,19 @@ export default async function HomePage() {
 
       {/* ── Bottom CTA ────────────────────────────────────────────────── */}
       <section>
-        <FadeInSection className="rounded-2xl border border-brand-100 bg-brand-50 px-6 py-8 sm:px-10 sm:py-9">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
-            <div className="space-y-1.5">
-              <h2 className="font-display text-xl font-bold text-ink sm:text-2xl">
+        <FadeInSection className="rounded-2xl border border-brand-200 bg-brand-50 px-8 py-10 sm:px-12 sm:py-12">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-10">
+            <div className="space-y-2">
+              <h2 className="font-display text-2xl font-bold text-ink text-balance sm:text-3xl">
                 Мали досвід роботи або співбесіди?
               </h2>
-              <p className="text-sm leading-relaxed text-ink-soft sm:text-base">
+              <p className="text-sm leading-relaxed text-ink-soft text-balance sm:text-base">
                 Поділіться досвідом анонімно — це допоможе іншим не помилитися з
                 вибором роботодавця.
               </p>
             </div>
             <div className="shrink-0">
-              <Button href="/add-review" variant="primary" size="lg" className="w-full sm:w-auto">
+              <Button href="/add-review" variant="primary" size="xl" className="w-full sm:w-auto">
                 Додати відгук
               </Button>
             </div>

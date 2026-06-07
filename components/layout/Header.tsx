@@ -185,7 +185,7 @@ export function Header() {
               className={cn(
                 "rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-ring",
                 pathname.startsWith(item.href)
-                  ? "text-brand-700 bg-brand-50"
+                  ? "text-brand-700 bg-brand-50 shadow-[inset_0_-2px_0_0_theme(colors.brand.500)]"
                   : "text-ink-soft hover:text-ink hover:bg-ink/[0.04]"
               )}
             >

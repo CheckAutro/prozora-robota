@@ -1186,12 +1186,17 @@ export function VacancyCheckClient() {
 
       <AiVacancyAnalysisSection initialCompanyName={companyParam} />
 
-      <Card className="space-y-4 p-6">
-        <div>
-          <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка</h2>
-          <p className="mt-1 text-sm text-ink-soft">
-            Детермінований аналіз тексту вакансії, компанії в базі та відкритих даних сайту.
-          </p>
+      <Card variant="elevated" className="space-y-4 p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
+            <ShieldCheck className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка</h2>
+            <p className="mt-0.5 text-sm text-ink-soft">
+              Детермінований аналіз тексту вакансії, компанії в базі та відкритих даних сайту.
+            </p>
+          </div>
         </div>
         <textarea
           ref={textareaRef}
@@ -1202,7 +1207,7 @@ export function VacancyCheckClient() {
           }}
           rows={5}
           placeholder="Вставте посилання Work.ua / Robota.ua, назву компанії або текст вакансії"
-          className="w-full resize-y rounded-xl border border-ink/12 bg-white px-4 py-3 text-sm focus-ring placeholder:text-ink-muted"
+          className="w-full resize-y rounded-xl border border-ink/[0.15] bg-white px-4 py-3 text-sm focus-ring placeholder:text-ink-muted/60 transition-colors focus:border-brand-300"
         />
         <div className="flex flex-wrap items-center gap-3">
           <Button
