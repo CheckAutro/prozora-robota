@@ -44,7 +44,6 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CompanyReviewsSection } from "@/components/product/CompanyReviews";
 import { ExternalRatingsSection } from "@/components/product/ExternalRatingsSection";
-import { AiCompanyAnalysisPanel } from "@/components/product/AiAnalysisPanel";
 
 // Pre-render known slugs at build time (both mock-data AND Supabase slugs
 // that were discovered at previous builds).
@@ -209,6 +208,355 @@ function getExternalCompanyOpenSources(sources: ExternalCompanySource[]): Extern
   return sources.filter((source) => source.sourceType !== "rating");
 }
 
+const CONFIDENCE_LABELS: Record<ExternalCompanySource["confidence"], string> = {
+  low: "низька",
+  medium: "середня",
+  high: "висока",
+};
+
+type CompactSourceCard = {
+  id: string;
+  sourceName: string;
+  sourceUrl: string | null;
+  sourceType: ExternalCompanySource["sourceType"];
+  title: string | null;
+  shortSummary: string;
+  confidence: ExternalCompanySource["confidence"];
+  collectedAt: string | null;
+};
+
+function isUselessDuplicateTitle(title: string | null, summary: string): boolean {
+  if (!title) return true;
+  const normalizedTitle = title.trim().toLowerCase();
+  const normalizedSummary = summary.trim().toLowerCase();
+  return !normalizedTitle || normalizedSummary.includes(normalizedTitle);
+}
+
+function dedupeSentences(value: string): string {
+  const sentences = value
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const sentence of sentences) {
+    const key = sentence.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(sentence);
+  }
+  return result.join(" ");
+}
+
+function sourceIdentityKey(card: CompactSourceCard): string {
+  if (card.sourceUrl) {
+    return `url:${card.sourceUrl.replace(/[#?].*$/, "").replace(/\/+$/, "").toLowerCase()}`;
+  }
+  return [
+    card.sourceName,
+    card.sourceType,
+    card.title ?? "",
+    card.shortSummary,
+  ].join("|").toLowerCase();
+}
+
+function openFactSummaryText(fact: CompanyOpenFact): string {
+  const count = extractOpenVacanciesCount(fact.rawExcerpt);
+  if (isSourceSummaryFact(fact)) {
+    return count !== null
+      ? `Компанія має сторінку у відкритому джерелі. Вакансій у відкритому джерелі: ${count}. Це не кількість відгуків.`
+      : "Компанія має сторінку у відкритому джерелі.";
+  }
+
+  const parts = [
+    fact.city ? `Місто: ${fact.city}` : null,
+    fact.salaryText ? `зарплата: ${fact.salaryText}` : null,
+    fact.schedule ? `графік: ${fact.schedule}` : null,
+    fact.employmentType ? `оформлення: ${fact.employmentType}` : null,
+  ].filter(Boolean);
+
+  return parts.length > 0
+    ? parts.join(" · ")
+    : shortText(fact.rawExcerpt, 160) ?? "Є дані з відкритої вакансії.";
+}
+
+function getCompactOpenSourceCards(
+  externalCompanySources: ExternalCompanySource[],
+  openFacts: CompanyOpenFact[]
+): CompactSourceCard[] {
+  const cards: CompactSourceCard[] = [
+    ...getExternalCompanyOpenSources(externalCompanySources).map((source) => ({
+      id: `external-${source.id}`,
+      sourceName: source.sourceName,
+      sourceUrl: source.sourceUrl,
+      sourceType: source.sourceType,
+      title: source.title,
+      shortSummary: shortText(dedupeSentences(source.shortSummary), 180) ?? "Є підтверджене відкрите джерело.",
+      confidence: source.confidence,
+      collectedAt: source.collectedAt,
+    })),
+    ...openFacts.map((fact) => ({
+      id: `open-fact-${fact.id}`,
+      sourceName: fact.sourceName,
+      sourceUrl: fact.sourceUrl,
+      sourceType: isSourceSummaryFact(fact) ? "company_page" as const : "vacancy" as const,
+      title: isSourceSummaryFact(fact)
+        ? `Сторінка компанії: ${fact.sourceName}`
+        : fact.vacancyTitle ?? "Відкрита вакансія",
+      shortSummary: openFactSummaryText(fact),
+      confidence: "medium" as const,
+      collectedAt: fact.collectedAt,
+    })),
+  ];
+
+  const seen = new Set<string>();
+  return cards.filter((card) => {
+    const key = sourceIdentityKey(card);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getCompactSourceBreakdown({
+  facts,
+  externalRatings,
+  externalCompanySources,
+  openFacts,
+  openFactSummary,
+  externalReviewSignalSummary,
+}: {
+  facts: PublishedCompanyReviewFacts;
+  externalRatings: ExternalRating[];
+  externalCompanySources: ExternalCompanySource[];
+  openFacts: CompanyOpenFact[];
+  openFactSummary: CompanyOpenFactSummary;
+  externalReviewSignalSummary: ExternalReviewSignalSummary;
+}) {
+  const ratingSources = getExternalCompanyRatingSources(externalCompanySources);
+  const reviewSources = externalCompanySources.filter((source) => source.sourceType === "reviews");
+  const vacancySources = externalCompanySources.filter((source) => source.sourceType === "vacancy");
+  const companyPageSources = externalCompanySources.filter((source) => source.sourceType === "company_page");
+  const totalExternalSources = getCompactOpenSourceCards(externalCompanySources, openFacts).length + ratingSources.length;
+  const reputationSourcesTotal =
+    facts.reviewCount +
+    externalRatings.length +
+    externalReviewSignalSummary.signalCount +
+    reviewSources.length +
+    ratingSources.length;
+  const openFactSourcesTotal =
+    openFactSummary.factsCount +
+    vacancySources.length +
+    companyPageSources.length;
+
+  return {
+    totalExternalSources,
+    ratingSourcesCount: externalRatings.length + ratingSources.length,
+    reviewSourcesCount: reviewSources.length,
+    vacancySourcesCount: vacancySources.length + getRealVacancyFacts(openFacts).length,
+    companyPageSourcesCount: companyPageSources.length + getSourceSummaryFacts(openFacts).length,
+    reputationSourcesTotal,
+    openFactSourcesTotal,
+  };
+}
+
+function CompanyQuickCheckCard({
+  companyName,
+  facts,
+  externalRatings,
+  externalCompanySources,
+  openFacts,
+  openFactSummary,
+  externalReviewSignalSummary,
+  externalCompanySourceSummary,
+}: {
+  companyName: string;
+  facts: PublishedCompanyReviewFacts;
+  externalRatings: ExternalRating[];
+  externalCompanySources: ExternalCompanySource[];
+  openFacts: CompanyOpenFact[];
+  openFactSummary: CompanyOpenFactSummary;
+  externalReviewSignalSummary: ExternalReviewSignalSummary;
+  externalCompanySourceSummary: ExternalCompanySourceSummary;
+}) {
+  const breakdown = getCompactSourceBreakdown({
+    facts,
+    externalRatings,
+    externalCompanySources,
+    openFacts,
+    openFactSummary,
+    externalReviewSignalSummary,
+  });
+  const dataLevel = getCompanyDataLevel(
+    facts,
+    externalRatings.length,
+    openFactSummary.factsCount,
+    externalReviewSignalSummary.signalCount,
+    externalCompanySourceSummary.sourceCount
+  );
+  const hasReputationData = breakdown.reputationSourcesTotal > 0;
+  const hasOpenFacts = breakdown.openFactSourcesTotal > 0 || breakdown.totalExternalSources > 0;
+  const riskLabel = hasReputationData ? "Потребує перевірки" : "Недостатньо даних";
+  const riskTone = hasReputationData
+    ? "border-amber-200 bg-amber-50 text-amber-800"
+    : "border-amber-200 bg-amber-50 text-amber-800";
+  const confidence = hasReputationData
+    ? dataLevel === "Є достатньо даних" ? "середня" : "низька"
+    : "низька";
+  const summary = hasReputationData
+    ? "Є частина репутаційних або зовнішніх даних. Висновок варто робити обережно і підтвердити ключові умови письмово."
+    : hasOpenFacts
+      ? "Є відкриті факти або сторінки компанії у відкритих джерелах, але немає достатньо відгуків працівників чи підтверджених зовнішніх оцінок."
+      : "Даних поки недостатньо для оцінки роботодавця.";
+  const hasRatings = breakdown.ratingSourcesCount > 0;
+  const keyItems = hasReputationData
+    ? [
+        facts.reviewCount > 0 ? `Є відгуки на Прозора робота: ${facts.reviewCount}.` : null,
+        hasRatings ? `Є підтверджені зовнішні оцінки: ${breakdown.ratingSourcesCount}.` : null,
+        breakdown.reviewSourcesCount > 0 || externalReviewSignalSummary.signalCount > 0
+          ? "Є підтверджені зовнішні сигнали або узагальнення."
+          : "Ключові умови все одно потрібно уточнювати письмово.",
+      ].filter(Boolean) as string[]
+    : [
+        "Компанія є в каталозі.",
+        hasOpenFacts ? "Є відкриті джерела або вакансії." : "Підтверджених відкритих джерел поки немає.",
+        "Недостатньо відгуків працівників для повної оцінки.",
+      ];
+  const knownFacts = [
+    `Компанія: ${companyName}.`,
+    facts.reviewCount > 0 ? `Відгуків на Прозора робота: ${facts.reviewCount}.` : "Відгуків працівників поки немає.",
+    openFactSummary.factsCount > 0 ? `Відкритих фактів: ${openFactSummary.factsCount}.` : null,
+    openFactSummary.sources.length > 0 ? `Джерела фактів: ${openFactSummary.sources.join(" / ")}.` : null,
+    breakdown.totalExternalSources > 0 ? `Відкритих джерел: ${breakdown.totalExternalSources}.` : null,
+    hasRatings ? `Зовнішніх оцінок: ${breakdown.ratingSourcesCount}.` : "Зовнішні оцінки поки не підтверджені.",
+  ].filter(Boolean) as string[];
+  const risks = hasReputationData
+    ? [
+        "Дані з відкритих джерел не є відгуками Прозора робота.",
+        "Умови вакансій можуть відрізнятися від фактичних умов роботи.",
+      ]
+    : ["Ризик неможливо оцінити через нестачу репутаційних даних."];
+  const missingData = [
+    facts.reviewCount === 0 ? "Недостатньо відгуків користувачів Прозора робота." : null,
+    !hasRatings ? "Немає підтверджених зовнішніх оцінок." : null,
+    externalReviewSignalSummary.signalCount === 0 && breakdown.reviewSourcesCount === 0
+      ? "Немає підтверджених зовнішніх відгуків або сигналів."
+      : null,
+    !facts.hasSalaryData && openFactSummary.salaryExamples.length === 0 ? "Бракує даних про зарплату." : null,
+    !facts.hasEmploymentData && !openFactSummary.hasOfficialEmploymentMention && openFactSummary.employmentTypes.length === 0
+      ? "Бракує даних про оформлення."
+      : null,
+    !facts.hasScheduleData && openFactSummary.schedules.length === 0 ? "Бракує даних про графік." : null,
+  ].filter(Boolean) as string[];
+  const recommendations = [
+    "Перевірте конкретну вакансію перед відгуком.",
+    "Попросіть письмово підтвердити зарплату, графік і оформлення.",
+    "Не робіть висновок лише на основі кількості вакансій.",
+    "Залиште анонімний відгук після співбесіди або роботи.",
+  ];
+  const interviewQuestions = [
+    "Яка фіксована ставка і як виплачуються бонуси?",
+    "Чи є офіційне оформлення з першого дня?",
+    "Який фактичний графік і як оплачуються понаднормові?",
+    "Чи є бронювання або відстрочка і чи дають письмове підтвердження?",
+  ];
+
+  return (
+    <Card className="space-y-4 p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка</h2>
+          <p className="mt-2 line-clamp-2 max-w-2xl text-sm leading-relaxed text-ink-soft">
+            {summary}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", riskTone)}>
+            Ризик: {riskLabel}
+          </span>
+          <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
+            Впевненість: {confidence}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+          <p className="text-xs text-ink-muted">Відгуки</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{facts.reviewCount}</p>
+        </div>
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+          <p className="text-xs text-ink-muted">Відкриті джерела</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{breakdown.totalExternalSources}</p>
+        </div>
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+          <p className="text-xs text-ink-muted">Оцінки</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{hasRatings ? "є" : "немає"}</p>
+        </div>
+        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+          <p className="text-xs text-ink-muted">Дані</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{dataLevelLabel(dataLevel).toLowerCase()}</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Ключове</p>
+        <ul className="mt-2 space-y-1.5">
+          {keyItems.slice(0, 3).map((item) => (
+            <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <details className="rounded-xl border border-ink/[0.06] bg-white p-4">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
+          Показати деталі
+        </summary>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <CompactDetailsList title="Що відомо" items={knownFacts} />
+          <CompactDetailsList title="Ризики" items={risks} />
+          <CompactDetailsList title="Чого бракує" items={missingData} />
+          <CompactDetailsList title="Рекомендації" items={recommendations} />
+          <CompactDetailsList title="Питання на співбесіді" items={interviewQuestions} />
+          <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
+            <h3 className="text-sm font-semibold text-ink">Джерела</h3>
+            <div className="mt-2 grid gap-1 text-sm text-ink-soft">
+              <p>Відгуки Прозора робота: {facts.reviewCount}</p>
+              <p>Відкриті факти: {openFactSummary.factsCount}</p>
+              <p>Зовнішні джерела: {breakdown.totalExternalSources}</p>
+              <p>Зовнішні оцінки: {breakdown.ratingSourcesCount}</p>
+              <p>Репутаційні джерела: {breakdown.reputationSourcesTotal}</p>
+            </div>
+          </div>
+        </div>
+      </details>
+    </Card>
+  );
+}
+
+function CompactDetailsList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      {items.length === 0 ? (
+        <p className="mt-2 text-sm text-ink-muted">Недостатньо даних.</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {items.slice(0, 6).map((item) => (
+            <li key={item} className="text-sm leading-relaxed text-ink-soft">
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function CompanyDataSummary({
   facts,
   externalCompanySourceSummary,
@@ -298,23 +646,25 @@ function CompanyDataSummary({
 }
 
 function ExternalCompanySourcesSection({
+  openFacts,
   sources,
 }: {
+  openFacts: CompanyOpenFact[];
   sources: ExternalCompanySource[];
 }) {
-  const displaySources = getExternalCompanyOpenSources(sources);
+  const displaySources = getCompactOpenSourceCards(sources, openFacts);
   const visibleSources = displaySources.slice(0, 3);
   const hasMore = displaySources.length > visibleSources.length;
 
   return (
-    <Card className="space-y-4 p-5 sm:p-6">
+    <Card className="space-y-3 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-bold text-ink">
             Відкриті джерела та вакансії
           </h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Це сторінки компаній, вакансії, публікації або зовнішні згадки. Вони не є відгуками Прозора робота і не впливають на внутрішній рейтинг.
+            Це сторінки компаній, вакансії або відкриті згадки. Вони не є відгуками Прозора робота.
           </p>
         </div>
         <p className="rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
@@ -328,9 +678,9 @@ function ExternalCompanySourcesSection({
         </p>
       ) : (
         <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-3">
             {visibleSources.map((source) => (
-              <div key={source.id} className="rounded-xl border border-ink/[0.06] bg-white p-4">
+              <div key={source.id} className="rounded-xl border border-ink/[0.06] bg-white p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-ink">{source.sourceName}</p>
@@ -339,35 +689,25 @@ function ExternalCompanySourcesSection({
                       {source.collectedAt ? ` · ${formatDate(source.collectedAt)}` : ""}
                     </p>
                   </div>
-                  <div className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
-                    {source.confidence === "high" ? "висока впевненість" : source.confidence === "medium" ? "середня впевненість" : "низька впевненість"}
+                  <div className="rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink-soft">
+                    {CONFIDENCE_LABELS[source.confidence]}
                   </div>
                 </div>
-                {source.title && (
-                  <p className="mt-3 text-sm font-medium text-ink">{source.title}</p>
+                {!isUselessDuplicateTitle(source.title, source.shortSummary) && (
+                  <p className="mt-3 line-clamp-1 text-sm font-medium text-ink">{source.title}</p>
                 )}
-                <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-ink-soft">
                   {source.shortSummary}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-                  {source.ratingValue !== null && (
-                    <span className="rounded-full bg-ink/[0.04] px-2.5 py-1">
-                      {source.ratingValue.toFixed(1)} / {source.ratingScale ?? 5}
-                    </span>
-                  )}
-                  {source.reviewsCount > 0 && (
-                    <span className="rounded-full bg-ink/[0.04] px-2.5 py-1">
-                      {source.reviewsCount} згадок
-                    </span>
-                  )}
                   {source.sourceUrl && (
                     <a
                       href={source.sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="ml-auto inline-flex items-center gap-1 font-medium text-brand-700 hover:text-brand-800"
+                      className="inline-flex items-center gap-1 font-medium text-brand-700 hover:text-brand-800"
                     >
-                      Джерело ↗
+                      Джерело
                     </a>
                   )}
                 </div>
@@ -388,6 +728,16 @@ function ExternalCompanySourcesSection({
                     <span>{externalSourceTypeLabel(source.sourceType)}</span>
                     <span className="text-ink-muted">·</span>
                     <span className="line-clamp-1">{source.shortSummary}</span>
+                    {source.sourceUrl && (
+                      <a
+                        href={source.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-auto font-medium text-brand-700 hover:text-brand-800"
+                      >
+                        Джерело
+                      </a>
+                    )}
                   </div>
                 ))}
               </div>
@@ -832,25 +1182,38 @@ function InterviewChecklistSection() {
     "Чи оплачуються понаднормові?",
     "Чи є бронювання або відстрочка?",
   ];
+  const visibleQuestions = questions.slice(0, 4);
+  const hiddenQuestions = questions.slice(4);
 
   return (
     <section id="interview-checklist">
-      <Card className="space-y-4 p-6">
+      <Card className="space-y-3 p-4 sm:p-5">
       <div>
         <h2 className="font-display text-lg font-bold text-ink">
           Що уточнити перед співбесідою
         </h2>
-        <p className="mt-1 text-sm text-ink-soft">
-          Безкоштовний чеклист питань. Він не замінює письмове підтвердження умов.
-        </p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {questions.map((question) => (
-          <p key={question} className="rounded-xl border border-ink/[0.06] bg-white px-3 py-2 text-sm text-ink-soft">
+      <div className="flex flex-wrap gap-2">
+        {visibleQuestions.map((question) => (
+          <p key={question} className="rounded-full border border-ink/[0.06] bg-white px-3 py-2 text-sm text-ink-soft">
             {question}
           </p>
         ))}
       </div>
+      {hiddenQuestions.length > 0 && (
+        <details className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-ink">
+            Показати ще {hiddenQuestions.length} питання
+          </summary>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {hiddenQuestions.map((question) => (
+              <p key={question} className="rounded-full border border-ink/[0.06] bg-white px-3 py-2 text-sm text-ink-soft">
+                {question}
+              </p>
+            ))}
+          </div>
+        </details>
+      )}
       </Card>
     </section>
   );
@@ -871,6 +1234,74 @@ function AddAnonymousReviewCta({ companySlug }: { companySlug: string }) {
         <PenLine className="h-4 w-4" /> Додати анонімний відгук про цю компанію
       </Button>
     </Card>
+  );
+}
+
+function CompanyReviewsCompactSection({
+  companySlug,
+  companyName,
+  reviewCount,
+}: {
+  companySlug: string;
+  companyName: string;
+  reviewCount: number;
+}) {
+  if (reviewCount === 0) {
+    return (
+      <section className="space-y-3">
+        <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
+        <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold text-ink">
+              На Прозора робота ще немає відгуків про цю компанію.
+            </p>
+            <p className="mt-1 text-sm text-ink-soft">
+              Тільки опубліковані відгуки користувачів впливають на внутрішню оцінку.
+            </p>
+          </div>
+          <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="secondary">
+            Залишити перший відгук
+          </Button>
+        </Card>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-3">
+      <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
+      <CompanyReviewsSection
+        companySlug={companySlug}
+        companyName={companyName}
+      />
+      <p className="text-xs text-ink-muted">
+        Тільки ці опубліковані відгуки впливають на внутрішню оцінку Прозора робота.
+      </p>
+    </section>
+  );
+}
+
+function ExternalRatingsCompactSection({
+  externalRatings,
+  externalCompanySources,
+}: {
+  externalRatings: ExternalRating[];
+  externalCompanySources: ExternalCompanySource[];
+}) {
+  const ratingSources = getExternalCompanyRatingSources(externalCompanySources);
+  if (externalRatings.length === 0 && ratingSources.length === 0) {
+    return (
+      <Card className="p-4 text-sm text-ink-soft">
+        Зовнішні оцінки поки не підтверджені.
+      </Card>
+    );
+  }
+
+  return (
+    <ExternalRatingsSection
+      ratings={externalRatings}
+      companySourceRatings={ratingSources}
+    />
   );
 }
 
@@ -1267,11 +1698,8 @@ export default async function CompanyPage({
             </div>
           </div>
         </Card>
-        <AiCompanyAnalysisPanel
-          companySlug={mockFallback.slug}
+        <CompanyQuickCheckCard
           companyName={mockFallback.name}
-        />
-        <CompanyDataSummary
           facts={reviewFacts}
           externalRatings={externalRatings}
           externalCompanySources={externalCompanySources}
@@ -1282,47 +1710,20 @@ export default async function CompanyPage({
         />
         <ExternalCompanySourcesSection
           sources={externalCompanySources}
-        />
-        <CompanyShortAnalysis
-          companyName={mockFallback.name}
-          industry={fallbackIndustry}
-          city={mockFallback.city}
-          facts={reviewFacts}
-          externalRatings={externalRatings}
           openFacts={openFacts}
-          openFactSummary={openFactSummary}
-          externalReviewSignalSummary={externalReviewSignalSummary}
-          externalCompanySourceSummary={externalCompanySourceSummary}
         />
-        <PreliminaryConclusion
+        <CompanyReviewsCompactSection
           companySlug={mockFallback.slug}
-          facts={reviewFacts}
-          openFactSummary={openFactSummary}
+          companyName={mockFallback.name}
+          reviewCount={reviewFacts.reviewCount}
         />
-        <CompanyOpenFactsSection facts={openFacts} />
-        <AddAnonymousReviewCta companySlug={mockFallback.slug} />
-        <InterviewChecklistSection />
-        <section className="space-y-3">
-          <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
-          <CompanyReviewsSection
-            companySlug={mockFallback.slug}
-            companyName={mockFallback.name}
-          />
-          <p className="text-xs text-ink-muted">
-            Тільки ці опубліковані відгуки впливають на внутрішню оцінку Прозора робота.
-          </p>
-        </section>
-        <ExternalRatingsSection ratings={externalRatings} companySourceRatings={getExternalCompanyRatingSources(externalCompanySources)} />
-        <ExternalReviewSignalsSection signals={externalReviewSignals} />
-        <CompanyProAnalysis
-          facts={reviewFacts}
+        <ExternalRatingsCompactSection
           externalRatings={externalRatings}
-          openFacts={openFacts}
-          openFactSummary={openFactSummary}
-          externalReviewSignalSummary={externalReviewSignalSummary}
-          externalCompanySourceSummary={externalCompanySourceSummary}
           externalCompanySources={externalCompanySources}
         />
+        {externalReviewSignals.length > 0 && <ExternalReviewSignalsSection signals={externalReviewSignals} />}
+        <InterviewChecklistSection />
+        <AddAnonymousReviewCta companySlug={mockFallback.slug} />
         <p className="text-center text-xs text-ink-muted">
           Інформація про компанію формується на основі анонімних відгуків і не є офіційною
           оцінкою роботодавця.
@@ -1384,12 +1785,8 @@ export default async function CompanyPage({
         </div>
       </Card>
 
-      <AiCompanyAnalysisPanel
-        companySlug={sbCompany.slug}
+      <CompanyQuickCheckCard
         companyName={sbCompany.name}
-      />
-
-      <CompanyDataSummary
         facts={reviewFacts}
         externalRatings={externalRatings}
         externalCompanySources={externalCompanySources}
@@ -1401,56 +1798,25 @@ export default async function CompanyPage({
 
       <ExternalCompanySourcesSection
         sources={externalCompanySources}
-      />
-
-      <CompanyShortAnalysis
-        companyName={sbCompany.name}
-        industry={industry}
-        city={sbCompany.city}
-        facts={reviewFacts}
-        externalRatings={externalRatings}
         openFacts={openFacts}
-        openFactSummary={openFactSummary}
-        externalReviewSignalSummary={externalReviewSignalSummary}
-        externalCompanySourceSummary={externalCompanySourceSummary}
       />
 
-      <PreliminaryConclusion
+      <CompanyReviewsCompactSection
         companySlug={sbCompany.slug}
-        facts={reviewFacts}
-        openFactSummary={openFactSummary}
+        companyName={sbCompany.name}
+        reviewCount={reviewFacts.reviewCount}
       />
 
-      <CompanyOpenFactsSection facts={openFacts} />
+      <ExternalRatingsCompactSection
+        externalRatings={externalRatings}
+        externalCompanySources={externalCompanySources}
+      />
 
-      <AddAnonymousReviewCta companySlug={sbCompany.slug} />
+      {externalReviewSignals.length > 0 && <ExternalReviewSignalsSection signals={externalReviewSignals} />}
 
       <InterviewChecklistSection />
 
-      {/* Reviews: summary + ratings + risks + geo/roles + list (all from Supabase) */}
-      <section className="space-y-3">
-        <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
-        <CompanyReviewsSection
-          companySlug={sbCompany.slug}
-          companyName={sbCompany.name}
-        />
-        <p className="text-xs text-ink-muted">
-          Тільки ці опубліковані відгуки впливають на внутрішню оцінку Прозора робота.
-        </p>
-      </section>
-
-      <ExternalRatingsSection ratings={externalRatings} companySourceRatings={getExternalCompanyRatingSources(externalCompanySources)} />
-      <ExternalReviewSignalsSection signals={externalReviewSignals} />
-
-      <CompanyProAnalysis
-        facts={reviewFacts}
-        externalRatings={externalRatings}
-        openFacts={openFacts}
-        openFactSummary={openFactSummary}
-        externalReviewSignalSummary={externalReviewSignalSummary}
-        externalCompanySourceSummary={externalCompanySourceSummary}
-        externalCompanySources={externalCompanySources}
-      />
+      <AddAnonymousReviewCta companySlug={sbCompany.slug} />
 
       <p className="text-center text-xs text-ink-muted">
         Інформація про компанію формується на основі анонімних відгуків і не є офіційною
