@@ -10,6 +10,8 @@ import {
   FileText,
   FileSearch,
   Star,
+  ChevronDown,
+  MessageSquare,
 } from "lucide-react";
 
 import { COMPANIES } from "@/lib/mock-data";
@@ -398,9 +400,9 @@ function CompanyQuickCheckCard({
   const hasReputationData = breakdown.reputationSourcesTotal > 0;
   const hasOpenFacts = breakdown.openFactSourcesTotal > 0 || breakdown.totalExternalSources > 0;
   const riskLabel = hasReputationData ? "Потребує перевірки" : "Недостатньо даних";
-  const riskTone = hasReputationData
-    ? "border-amber-200 bg-amber-50 text-amber-800"
-    : "border-amber-200 bg-amber-50 text-amber-800";
+  const riskBadgeOnDark = hasReputationData
+    ? "border-amber-400/40 bg-amber-400/[0.15] text-amber-300"
+    : "border-white/[0.15] bg-white/[0.08] text-white/50";
   const confidence = hasReputationData
     ? dataLevel === "Є достатньо даних" ? "середня" : "низька"
     : "низька";
@@ -462,92 +464,117 @@ function CompanyQuickCheckCard({
     "Чи є бронювання або відстрочка і чи дають письмове підтвердження?",
   ];
 
+  const confidenceBadgeOnDark = confidence === "середня"
+    ? "border-brand-400/40 bg-brand-400/[0.15] text-brand-300"
+    : "border-white/[0.15] bg-white/[0.08] text-white/50";
+
   return (
-    <Card className="space-y-4 p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="font-display text-lg font-bold text-ink">Швидка перевірка</h2>
-          <p className="mt-2 line-clamp-2 max-w-2xl text-sm leading-relaxed text-ink-soft">
-            {summary}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 sm:justify-end">
-          <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", riskTone)}>
-            Ризик: {riskLabel}
-          </span>
-          <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
-            Впевненість: {confidence}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
-          <p className="text-xs text-ink-muted">Відгуки</p>
-          <p className="mt-1 text-sm font-semibold text-ink">{facts.reviewCount}</p>
-        </div>
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
-          <p className="text-xs text-ink-muted">Відкриті джерела</p>
-          <p className="mt-1 text-sm font-semibold text-ink">{breakdown.totalExternalSources}</p>
-        </div>
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
-          <p className="text-xs text-ink-muted">Оцінки</p>
-          <p className="mt-1 text-sm font-semibold text-ink">{hasRatings ? "є" : "немає"}</p>
-        </div>
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
-          <p className="text-xs text-ink-muted">Дані</p>
-          <p className="mt-1 text-sm font-semibold text-ink">{dataLevelLabel(dataLevel).toLowerCase()}</p>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Ключове</p>
-        <ul className="mt-2 space-y-1.5">
-          {keyItems.slice(0, 3).map((item) => (
-            <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <details className="rounded-xl border border-ink/[0.06] bg-white p-4">
-        <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
-          Показати деталі
-        </summary>
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          <CompactDetailsList title="Що відомо" items={knownFacts} />
-          <CompactDetailsList title="Ризики" items={risks} />
-          <CompactDetailsList title="Чого бракує" items={missingData} />
-          <CompactDetailsList title="Рекомендації" items={recommendations} />
-          <CompactDetailsList title="Питання на співбесіді" items={interviewQuestions} />
-          <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
-            <h3 className="text-sm font-semibold text-ink">Джерела</h3>
-            <div className="mt-2 grid gap-1 text-sm text-ink-soft">
-              <p>Відгуки Прозора робота: {facts.reviewCount}</p>
-              <p>Відкриті факти: {openFactSummary.factsCount}</p>
-              <p>Зовнішні джерела: {breakdown.totalExternalSources}</p>
-              <p>Зовнішні оцінки: {breakdown.ratingSourcesCount}</p>
-              <p>Репутаційні джерела: {breakdown.reputationSourcesTotal}</p>
-            </div>
+    <Card className="overflow-hidden">
+      {/* ── Dark header panel ── */}
+      <div className="bg-gradient-to-br from-[#0f1f1a] to-[#1a3028] px-4 pb-5 pt-5 sm:px-5">
+        <p className="text-[0.625rem] font-semibold uppercase tracking-widest text-brand-400">
+          Аналіз на основі доступних даних
+        </p>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="font-display text-lg font-bold tracking-tight text-white">
+              Швидка перевірка
+            </h2>
+            <p className="mt-1.5 line-clamp-2 max-w-xl text-sm leading-relaxed text-white/65">
+              {summary}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold", riskBadgeOnDark)}>
+              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
+              {riskLabel}
+            </span>
+            <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", confidenceBadgeOnDark)}>
+              Впевненість: {confidence}
+            </span>
           </div>
         </div>
-      </details>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="space-y-4 p-4 sm:p-5">
+        {/* Stats row */}
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={cn("rounded-xl border p-3", facts.reviewCount > 0 ? "border-brand-200 bg-brand-50/70" : "border-ink/[0.07] bg-ink/[0.025]")}>
+            <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Відгуки</p>
+            <p className="mt-1 text-base font-bold tabular-nums text-ink">{facts.reviewCount}</p>
+          </div>
+          <div className={cn("rounded-xl border p-3", breakdown.totalExternalSources > 0 ? "border-brand-200 bg-brand-50/70" : "border-ink/[0.07] bg-ink/[0.025]")}>
+            <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Відкриті джерела</p>
+            <p className="mt-1 text-base font-bold tabular-nums text-ink">{breakdown.totalExternalSources}</p>
+          </div>
+          <div className={cn("rounded-xl border p-3", hasRatings ? "border-brand-200 bg-brand-50/70" : "border-ink/[0.07] bg-ink/[0.025]")}>
+            <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Оцінки</p>
+            <p className="mt-1 text-base font-bold text-ink">{hasRatings ? "є" : "немає"}</p>
+          </div>
+          <div className={cn("rounded-xl border p-3", dataLevel !== "Поки недостатньо даних" ? "border-brand-200 bg-brand-50/70" : "border-amber-200/60 bg-amber-50/40")}>
+            <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Дані</p>
+            <p className="mt-1 text-base font-bold text-ink">{dataLevelLabel(dataLevel).toLowerCase()}</p>
+          </div>
+        </div>
+
+        {/* Ключове */}
+        <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-4">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-700">Ключове</p>
+          <ul className="mt-2.5 space-y-2">
+            {keyItems.slice(0, 3).map((item) => (
+              <li key={item} className="flex items-start gap-2.5 text-sm leading-relaxed text-ink-soft">
+                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-500" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Details accordion */}
+        <details className="rounded-xl border border-ink/[0.1] bg-white">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-ink">
+            Показати деталі
+            <span className="accordion-chevron text-ink-muted">
+              <ChevronDown className="h-4 w-4" />
+            </span>
+          </summary>
+          <div className="border-t border-ink/[0.06] p-4">
+            <div className="grid gap-3 lg:grid-cols-2">
+              <CompactDetailsList title="Що відомо" items={knownFacts} />
+              <CompactDetailsList title="Ризики" items={risks} />
+              <CompactDetailsList title="Чого бракує" items={missingData} />
+              <CompactDetailsList title="Рекомендації" items={recommendations} />
+              <CompactDetailsList title="Питання на співбесіді" items={interviewQuestions} />
+              <div className="rounded-xl border border-ink/[0.08] bg-ink/[0.025] p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Джерела</h3>
+                <div className="mt-2.5 grid gap-1.5 text-sm text-ink-soft">
+                  <p>Відгуки Прозора робота: {facts.reviewCount}</p>
+                  <p>Відкриті факти: {openFactSummary.factsCount}</p>
+                  <p>Зовнішні джерела: {breakdown.totalExternalSources}</p>
+                  <p>Зовнішні оцінки: {breakdown.ratingSourcesCount}</p>
+                  <p>Репутаційні джерела: {breakdown.reputationSourcesTotal}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
     </Card>
   );
 }
 
 function CompactDetailsList({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
-      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+    <div className="rounded-xl border border-ink/[0.08] bg-ink/[0.025] p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{title}</h3>
       {items.length === 0 ? (
         <p className="mt-2 text-sm text-ink-muted">Недостатньо даних.</p>
       ) : (
-        <ul className="mt-2 space-y-1.5">
+        <ul className="mt-2.5 space-y-1.5">
           {items.slice(0, 6).map((item) => (
-            <li key={item} className="text-sm leading-relaxed text-ink-soft">
+            <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
+              <span className="mt-[0.4rem] h-1 w-1 shrink-0 rounded-full bg-ink-muted/50" />
               {item}
             </li>
           ))}
@@ -667,65 +694,79 @@ function ExternalCompanySourcesSection({
             Це сторінки компаній, вакансії або відкриті згадки. Вони не є відгуками Прозора робота.
           </p>
         </div>
-        <p className="rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
-          {displaySources.length > 0 ? `${displaySources.length} джерел` : "Поки немає джерел"}
-        </p>
+        <span className="rounded-full border border-brand-200/70 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+          {displaySources.length > 0 ? `${displaySources.length} джерел` : "Поки немає"}
+        </span>
       </div>
 
       {displaySources.length === 0 ? (
-        <p className="rounded-xl bg-ink/[0.03] px-4 py-3 text-sm text-ink-soft">
-          Підтверджених відкритих джерел або вакансій поки немає.
-        </p>
+        <div className="flex items-center gap-3 rounded-xl border border-ink/[0.07] bg-ink/[0.025] px-4 py-3">
+          <FileSearch className="h-4 w-4 shrink-0 text-ink-muted" />
+          <p className="text-sm text-ink-soft">Підтверджених відкритих джерел або вакансій поки немає.</p>
+        </div>
       ) : (
         <div className="space-y-3">
           <div className="grid gap-3 md:grid-cols-3">
             {visibleSources.map((source) => (
-              <div key={source.id} className="rounded-xl border border-ink/[0.06] bg-white p-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-ink">{source.sourceName}</p>
-                    <p className="mt-1 text-xs text-ink-muted">
-                      {externalSourceTypeLabel(source.sourceType)}
-                      {source.collectedAt ? ` · ${formatDate(source.collectedAt)}` : ""}
-                    </p>
+              <div key={source.id} className="rounded-xl border border-l-[3px] border-ink/[0.08] border-l-brand-400/60 bg-white p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="rounded-md border border-ink/[0.08] bg-ink/[0.04] px-2 py-0.5 text-[0.6875rem] font-medium text-ink-muted">
+                        {externalSourceTypeLabel(source.sourceType)}
+                      </span>
+                      {source.collectedAt && (
+                        <span className="text-[0.6875rem] text-ink-muted">{formatDate(source.collectedAt)}</span>
+                      )}
+                    </div>
+                    <p className="mt-1.5 font-semibold text-ink">{source.sourceName}</p>
                   </div>
-                  <div className="rounded-full bg-ink/[0.04] px-2.5 py-1 text-xs font-semibold text-ink-soft">
+                  <span className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                    source.confidence === "high" && "border-emerald-200 bg-emerald-50 text-emerald-800",
+                    source.confidence === "medium" && "border-amber-200 bg-amber-50 text-amber-700",
+                    source.confidence === "low" && "border-ink/[0.1] bg-ink/[0.04] text-ink-muted",
+                  )}>
                     {CONFIDENCE_LABELS[source.confidence]}
-                  </div>
+                  </span>
                 </div>
                 {!isUselessDuplicateTitle(source.title, source.shortSummary) && (
-                  <p className="mt-3 line-clamp-1 text-sm font-medium text-ink">{source.title}</p>
+                  <p className="mt-2 line-clamp-1 text-sm font-medium text-ink">{source.title}</p>
                 )}
-                <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-ink-soft">
+                <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-ink-soft">
                   {source.shortSummary}
                 </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-                  {source.sourceUrl && (
+                {source.sourceUrl && (
+                  <div className="mt-3">
                     <a
                       href={source.sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-medium text-brand-700 hover:text-brand-800"
+                      className="inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-100"
                     >
-                      Джерело
+                      Відкрити джерело ↗
                     </a>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
 
           {hasMore && (
-            <details className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] px-4 py-3">
-              <summary className="cursor-pointer text-sm font-medium text-ink">
+            <details className="rounded-xl border border-ink/[0.1] bg-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-ink">
                 Показати ще {displaySources.length - visibleSources.length} джерел
+                <span className="accordion-chevron text-ink-muted">
+                  <ChevronDown className="h-4 w-4" />
+                </span>
               </summary>
-              <div className="mt-3 grid gap-2 text-sm text-ink-soft">
+              <div className="border-t border-ink/[0.06] p-3">
+                <div className="grid gap-2 text-sm text-ink-soft">
                 {displaySources.slice(3).map((source) => (
-                  <div key={source.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2">
+                  <div key={source.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-ink/[0.06] bg-ink/[0.02] px-3 py-2">
                     <span className="font-medium text-ink">{source.sourceName}</span>
                     <span className="text-ink-muted">·</span>
-                    <span>{externalSourceTypeLabel(source.sourceType)}</span>
+                    <span className="text-xs">{externalSourceTypeLabel(source.sourceType)}</span>
                     <span className="text-ink-muted">·</span>
                     <span className="line-clamp-1">{source.shortSummary}</span>
                     {source.sourceUrl && (
@@ -733,13 +774,14 @@ function ExternalCompanySourcesSection({
                         href={source.sourceUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="ml-auto font-medium text-brand-700 hover:text-brand-800"
+                        className="ml-auto inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-100"
                       >
-                        Джерело
+                        ↗
                       </a>
                     )}
                   </div>
                 ))}
+                </div>
               </div>
             </details>
           )}
@@ -999,7 +1041,7 @@ function ExternalReviewSignalsSection({
                     {signal.summary}
                   </p>
                 </div>
-                <span className="rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-medium text-ink-soft">
+                <span className="rounded-full border border-brand-200/60 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
                   {signal.mentionsCount} згадок
                 </span>
               </div>
@@ -1189,28 +1231,34 @@ function InterviewChecklistSection() {
     <section id="interview-checklist">
       <Card className="space-y-3 p-4 sm:p-5">
       <div>
-        <h2 className="font-display text-lg font-bold text-ink">
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-600">Підготовка до співбесіди</p>
+        <h2 className="mt-1 font-display text-lg font-bold tracking-tight text-ink">
           Що уточнити перед співбесідою
         </h2>
       </div>
       <div className="flex flex-wrap gap-2">
         {visibleQuestions.map((question) => (
-          <p key={question} className="rounded-full border border-ink/[0.06] bg-white px-3 py-2 text-sm text-ink-soft">
+          <p key={question} className="rounded-full border border-brand-200/70 bg-brand-50/60 px-3 py-2 text-sm font-medium text-ink transition-colors">
             {question}
           </p>
         ))}
       </div>
       {hiddenQuestions.length > 0 && (
-        <details className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-ink">
+        <details className="rounded-xl border border-ink/[0.1] bg-white">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-ink">
             Показати ще {hiddenQuestions.length} питання
+            <span className="accordion-chevron text-ink-muted">
+              <ChevronDown className="h-4 w-4" />
+            </span>
           </summary>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {hiddenQuestions.map((question) => (
-              <p key={question} className="rounded-full border border-ink/[0.06] bg-white px-3 py-2 text-sm text-ink-soft">
-                {question}
-              </p>
-            ))}
+          <div className="border-t border-ink/[0.06] p-3">
+            <div className="flex flex-wrap gap-2">
+              {hiddenQuestions.map((question) => (
+                <p key={question} className="rounded-full border border-brand-200/70 bg-brand-50/60 px-3 py-2 text-sm font-medium text-ink">
+                  {question}
+                </p>
+              ))}
+            </div>
           </div>
         </details>
       )}
@@ -1221,19 +1269,21 @@ function InterviewChecklistSection() {
 
 function AddAnonymousReviewCta({ companySlug }: { companySlug: string }) {
   return (
-    <Card className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="rounded-2xl bg-gradient-to-br from-[#0f1f1a] to-[#1a3028] p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
       <div>
-        <h2 className="font-display text-lg font-bold text-ink">
+        <h2 className="font-display text-lg font-bold tracking-tight text-white">
           Допоможіть іншим кандидатам
         </h2>
-        <p className="mt-1 text-sm text-ink-soft">
-          Анонімний відгук на Прозора робота відображається окремо від відкритих фактів і впливає тільки після модерації.
+        <p className="mt-1 text-sm text-white/65">
+          Анонімний відгук відображається окремо від відкритих фактів і публікується тільки після модерації.
         </p>
       </div>
-      <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="secondary">
-        <PenLine className="h-4 w-4" /> Додати анонімний відгук про цю компанію
-      </Button>
-    </Card>
+      <div className="mt-4 shrink-0 sm:mt-0">
+        <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="inverse" size="sm">
+          <PenLine className="h-4 w-4" /> Додати відгук
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -1249,17 +1299,22 @@ function CompanyReviewsCompactSection({
   if (reviewCount === 0) {
     return (
       <section className="space-y-3">
-        <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
-        <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-ink">
-              На Прозора робота ще немає відгуків про цю компанію.
-            </p>
-            <p className="mt-1 text-sm text-ink-soft">
-              Тільки опубліковані відгуки користувачів впливають на внутрішню оцінку.
-            </p>
+        <h2 className="font-display text-lg font-bold tracking-tight text-ink">Відгуки на Прозора робота</h2>
+        <Card className="flex flex-col gap-4 border-brand-100 bg-brand-50/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
+              <MessageSquare className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="font-semibold text-ink">
+                На Прозора робота ще немає відгуків про цю компанію.
+              </p>
+              <p className="mt-0.5 text-sm text-ink-soft">
+                Тільки опубліковані відгуки впливають на внутрішню оцінку.
+              </p>
+            </div>
           </div>
-          <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="secondary">
+          <Button href={`/add-review?company=${encodeURIComponent(companySlug)}`} variant="secondary" size="sm">
             Залишити перший відгук
           </Button>
         </Card>
@@ -1269,7 +1324,7 @@ function CompanyReviewsCompactSection({
 
   return (
     <section className="space-y-3">
-      <h2 className="font-display text-lg font-bold text-ink">Відгуки на Прозора робота</h2>
+      <h2 className="font-display text-lg font-bold tracking-tight text-ink">Відгуки на Прозора робота</h2>
       <CompanyReviewsSection
         companySlug={companySlug}
         companyName={companyName}
@@ -1291,7 +1346,8 @@ function ExternalRatingsCompactSection({
   const ratingSources = getExternalCompanyRatingSources(externalCompanySources);
   if (externalRatings.length === 0 && ratingSources.length === 0) {
     return (
-      <Card className="p-4 text-sm text-ink-soft">
+      <Card className="flex items-center gap-2.5 p-4 text-sm text-ink-soft">
+        <Star className="h-4 w-4 shrink-0 text-ink-muted" />
         Зовнішні оцінки поки не підтверджені.
       </Card>
     );
@@ -1671,28 +1727,29 @@ export default async function CompanyPage({
     // Supabase not configured — show name only with a prompt to add a review
     return (
       <div className="container-page max-w-3xl space-y-6 py-8 sm:py-10">
-        <Card variant="elevated" className="p-6 sm:p-8">
-          <h1 className="font-display text-3xl font-bold text-ink sm:text-4xl">
+        <Card variant="elevated" className="relative overflow-hidden p-6 sm:p-8">
+          <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-2xl bg-gradient-to-r from-brand-400 via-brand-500 to-brand-600" />
+          <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
             {mockFallback.name}
           </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-ink-soft">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-soft">
             {mockFallback.city && (
               <span className="inline-flex items-center gap-1.5">
-                <MapPin className="h-4 w-4" /> {mockFallback.city}
+                <MapPin className="h-3.5 w-3.5" /> {mockFallback.city}
               </span>
             )}
             {mockFallback.industry && (
               <span className="inline-flex items-center gap-1.5">
-                <Briefcase className="h-4 w-4" /> {fallbackIndustry}
+                <Briefcase className="h-3.5 w-3.5" /> {fallbackIndustry}
               </span>
             )}
           </div>
-          <div className="mt-5 border-t border-ink/[0.06] pt-5">
+          <div className="mt-4 border-t border-ink/[0.1] pt-4">
             <div className="flex flex-wrap gap-2">
-              <Button href={`/add-review?company=${encodeURIComponent(slug)}`}>
+              <Button href={`/add-review?company=${encodeURIComponent(slug)}`} size="sm">
                 <PenLine className="h-4 w-4" /> Додати відгук
               </Button>
-              <Button href="/check-vacancy" variant="outline">
+              <Button href="/check-vacancy" variant="outline" size="sm">
                 <FileSearch className="h-4 w-4" /> Перевірити вакансію
               </Button>
             </div>
@@ -1757,28 +1814,29 @@ export default async function CompanyPage({
   return (
     <div className="container-page max-w-3xl space-y-6 py-8 sm:py-10">
       {/* Header */}
-      <Card variant="elevated" className="p-6 sm:p-8">
-        <h1 className="font-display text-3xl font-bold text-ink sm:text-4xl">
+      <Card variant="elevated" className="relative overflow-hidden p-6 sm:p-8">
+        <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-2xl bg-gradient-to-r from-brand-400 via-brand-500 to-brand-600" />
+        <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
           {sbCompany.name}
         </h1>
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-ink-soft">
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-soft">
           {sbCompany.city && (
             <span className="inline-flex items-center gap-1.5">
-              <MapPin className="h-4 w-4" /> {sbCompany.city}
+              <MapPin className="h-3.5 w-3.5" /> {sbCompany.city}
             </span>
           )}
           {industry && (
             <span className="inline-flex items-center gap-1.5">
-              <Briefcase className="h-4 w-4" /> {industry}
+              <Briefcase className="h-3.5 w-3.5" /> {industry}
             </span>
           )}
         </div>
-        <div className="mt-5 border-t border-ink/[0.06] pt-5">
+        <div className="mt-4 border-t border-ink/[0.1] pt-4">
           <div className="flex flex-wrap gap-2">
-            <Button href={`/add-review?company=${encodeURIComponent(sbCompany.slug)}`}>
+            <Button href={`/add-review?company=${encodeURIComponent(sbCompany.slug)}`} size="sm">
               <PenLine className="h-4 w-4" /> Додати відгук
             </Button>
-            <Button href="/check-vacancy" variant="outline">
+            <Button href="/check-vacancy" variant="outline" size="sm">
               <FileSearch className="h-4 w-4" /> Перевірити вакансію
             </Button>
           </div>

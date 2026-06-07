@@ -65,3 +65,12 @@ body::before {
 .tnum {
   font-variant-numeric: tabular-nums;
 }
+
+/* Accordion chevron rotation */
+.accordion-chevron {
+  display: inline-flex;
+  transition: transform 0.2s ease;
+}
+details[open] > summary .accordion-chevron {
+  transform: rotate(180deg);
+}
