@@ -24,6 +24,7 @@ import {
   applySparseReputationGuard,
   completeSourceBreakdown,
 } from "./risk-safety";
+import { isSpecificReputationSource } from "@/lib/external/external-review-quality";
 
 export interface AiReviewContext {
   id: string;
@@ -121,7 +122,7 @@ function hasEmployerExperienceContext(context: AnalyzeEmployerContext): boolean 
     context.internalReviews.length > 0 ||
     context.externalRatings.length > 0 ||
     context.externalSignals.length > 0 ||
-    context.externalCompanySources.some((source) => ["reviews", "rating"].includes(source.sourceType)) ||
+    context.externalCompanySources.some((source) => isSpecificReputationSource(source)) ||
     hasReviewRatingOrDiscussionSource(context)
   );
 }
@@ -154,7 +155,7 @@ function dataLevel(context: AnalyzeEmployerContext): AiDataLevel {
     concreteOpenFacts.length +
     context.externalRatings.length +
     context.externalSignals.length +
-    context.externalCompanySources.filter((source) => ["reviews", "rating"].includes(source.sourceType)).length +
+    context.externalCompanySources.filter((source) => isSpecificReputationSource(source)).length +
     context.foundExternalSources.filter((source) => source.signal_type !== "company_page").length +
     (hasConcreteVacancyData ? 2 : textPresent ? 1 : 0);
   if (

@@ -10,6 +10,7 @@ import { findEmployerExternalSources } from "@/lib/ai/external-source-finder";
 import { readVacancyUrl } from "@/lib/ai/safe-vacancy-url-reader";
 import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
 import { autoPublishSafeDiscoverySources, type AutoPublishResult } from "@/lib/external/auto-publish-helpers";
+import { isSpecificReputationSource } from "@/lib/external/external-review-quality";
 import type { AiAnalysisType, AiFetchStatus, ExternalSourceCandidate } from "@/lib/ai/types";
 import type { ExternalRating, ExternalReviewSignal, RiskLevel } from "@/lib/types";
 
@@ -463,7 +464,7 @@ export async function POST(req: NextRequest) {
         context.internalReviews.length +
         context.externalRatings.length +
         context.externalSignals.length +
-        context.externalCompanySources.filter((source) => source.sourceType === "reviews" || source.sourceType === "rating").length,
+        context.externalCompanySources.filter((source) => isSpecificReputationSource(source)).length,
       open_fact_sources_total:
         context.openFacts.length +
         context.externalCompanySources.filter((source) => source.sourceType === "vacancy" || source.sourceType === "company_page").length,

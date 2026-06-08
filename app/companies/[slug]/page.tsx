@@ -68,6 +68,11 @@ import {
   dataLevelLabel,
   CONFIDENCE_LABELS,
 } from "@/lib/company-page-utils";
+import {
+  getExternalReviewSourceQuality,
+  QUALITY_LABELS,
+  GENERIC_SUMMARY_FALLBACK,
+} from "@/lib/external/external-review-quality";
 
 // Pre-render known slugs at build time (both mock-data AND Supabase slugs
 // that were discovered at previous builds).
@@ -387,6 +392,11 @@ function ExternalReviewSourcesSection({
           <div className="grid gap-3 md:grid-cols-3">
             {visible.map((source) => {
               const host = hostFromSourceUrl(source.sourceUrl);
+              const quality = getExternalReviewSourceQuality(source);
+              const displaySummary = quality.isGenericOnly
+                ? GENERIC_SUMMARY_FALLBACK
+                : source.shortSummary;
+              const showBullets = !quality.isGenericOnly;
               return (
                 <div
                   key={source.id}
@@ -406,21 +416,21 @@ function ExternalReviewSourcesSection({
                         </span>
                       )}
                       <span className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                        source.confidence === "high" && "border-emerald-200 bg-emerald-50 text-emerald-800",
-                        source.confidence === "medium" && "border-amber-200 bg-amber-50 text-amber-700",
-                        source.confidence === "low" && "border-ink/[0.1] bg-ink/[0.04] text-ink-muted",
+                        "rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold",
+                        quality.quality === "specific" && "border-emerald-200 bg-emerald-50 text-emerald-800",
+                        quality.quality === "partial" && "border-amber-200 bg-amber-50 text-amber-700",
+                        quality.quality === "generic" && "border-ink/[0.1] bg-ink/[0.04] text-ink-muted",
                       )}>
-                        {CONFIDENCE_LABELS[source.confidence]}
+                        {QUALITY_LABELS[quality.quality]}
                       </span>
                     </div>
                   </div>
 
                   <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-                    {source.shortSummary}
+                    {displaySummary}
                   </p>
 
-                  {source.positivePoints.length > 0 && (
+                  {showBullets && source.positivePoints.length > 0 && (
                     <div className="mt-2.5">
                       <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-emerald-700">
                         Позитивні сигнали
@@ -436,7 +446,7 @@ function ExternalReviewSourcesSection({
                     </div>
                   )}
 
-                  {source.negativePoints.length > 0 && (
+                  {showBullets && source.negativePoints.length > 0 && (
                     <div className="mt-2.5">
                       <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-red-600">
                         Ризики / скарги
@@ -452,7 +462,7 @@ function ExternalReviewSourcesSection({
                     </div>
                   )}
 
-                  {source.neutralFacts.length > 0 && (
+                  {showBullets && source.neutralFacts.length > 0 && (
                     <div className="mt-2.5">
                       <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-muted">
                         Що перевірити
@@ -465,6 +475,16 @@ function ExternalReviewSourcesSection({
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {quality.topics.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {quality.topics.slice(0, 4).map((topic) => (
+                        <span key={topic} className="rounded-md border border-ink/[0.08] bg-ink/[0.03] px-1.5 py-0.5 text-[0.625rem] font-medium text-ink-muted">
+                          {topic}
+                        </span>
+                      ))}
                     </div>
                   )}
 
