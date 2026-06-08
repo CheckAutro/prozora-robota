@@ -9,6 +9,7 @@ import { applySparseReputationGuard } from "@/lib/ai/risk-safety";
 import { findEmployerExternalSources } from "@/lib/ai/external-source-finder";
 import { readVacancyUrl } from "@/lib/ai/safe-vacancy-url-reader";
 import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
+import { autoPublishSafeDiscoverySources } from "@/lib/external/auto-publish-helpers";
 import type { AiAnalysisType, AiFetchStatus, ExternalSourceCandidate } from "@/lib/ai/types";
 import type { ExternalRating, ExternalReviewSignal, RiskLevel } from "@/lib/types";
 
@@ -395,6 +396,17 @@ export async function POST(req: NextRequest) {
         vacancyText: vacancyText ?? fetchedText,
       })
     : { sources: [], warnings: ["Пошук відкритих джерел вимкнено."] };
+
+  // Auto-publish safe sources discovered during company analysis
+  if (analysisType === "company" && includeExternalSearch && finalCompanySlug && finalCompanyName && finder.sources.length > 0) {
+    void autoPublishSafeDiscoverySources({
+      companySlug: finalCompanySlug,
+      companyName: finalCompanyName,
+      sources: finder.sources,
+    }).catch((err: unknown) => {
+      console.warn("[ai-analysis] auto-publish failed:", err instanceof Error ? err.message : String(err));
+    });
+  }
 
   const context: AnalyzeEmployerContext = {
     analysisType,
