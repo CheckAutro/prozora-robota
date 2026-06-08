@@ -33,7 +33,8 @@
     "import:vacancy-urls": "npx tsx scripts/bulk-import-vacancy-urls.ts",
     "discover:external-sources": "npx tsx scripts/discover-external-company-sources.ts",
     "backfill:priority-sources": "npx tsx scripts/backfill-priority-external-sources.ts",
-    "check:external-source-health": "npx tsx scripts/check-external-source-health.ts"
+    "check:external-source-health": "npx tsx scripts/check-external-source-health.ts",
+    "enrich:external-review-sources": "npx tsx scripts/enrich-external-review-sources.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
