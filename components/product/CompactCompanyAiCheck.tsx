@@ -390,9 +390,10 @@ function AiResultBody({ data }: { data: AiResponse }) {
         </div>
       </details>
 
-      {/* Discovery stats (compact, only when non-zero) */}
-      {((data.analysis.source_breakdown.discovered_now_total ?? 0) > 0 ||
-        (data.analysis.source_breakdown.auto_published_now_total ?? 0) > 0) && (
+      {/* Discovery stats — admin-only diagnostic line */}
+      {(data.usage.isAdmin || data.usage.unlimited) &&
+        ((data.analysis.source_breakdown.discovered_now_total ?? 0) > 0 ||
+          (data.analysis.source_breakdown.auto_published_now_total ?? 0) > 0) && (
         <p className="text-xs text-ink-muted">
           {(data.analysis.source_breakdown.discovered_now_total ?? 0) > 0 &&
             `Знайдено нових джерел: ${data.analysis.source_breakdown.discovered_now_total}`}

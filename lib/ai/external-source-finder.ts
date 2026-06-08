@@ -312,6 +312,7 @@ export async function findEmployerExternalSources(input: FinderInput): Promise<F
             ? "medium"
             : "low",
       source_language: normalized.sourceLanguage,
+      match_hint: `${item.title} ${item.snippet} ${item.url}`,
     };
   });
 

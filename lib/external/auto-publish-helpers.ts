@@ -40,9 +40,10 @@ export function isSocialMediaSource(sourceName: string, sourceUrl?: string | nul
 export function sourceMatchesCompany(
   title: string | null,
   snippet: string | null,
-  companyName: string
+  companyName: string,
+  extraText?: string | null
 ): boolean {
-  const text = `${title ?? ""} ${snippet ?? ""}`.toLowerCase();
+  const text = `${title ?? ""} ${snippet ?? ""} ${extraText ?? ""}`.toLowerCase();
   const name = companyName.toLowerCase().trim();
   if (!name) return true;
   if (text.includes(name)) return true;
@@ -72,6 +73,7 @@ export function canAutoPublishExternalSource(params: {
   sourceType: string;
   confidence: string;
   companyName: string;
+  matchHint?: string | null;
 }): { canPublish: boolean; reason?: string } {
   if (!params.sourceUrl) return { canPublish: false, reason: "no_url" };
   if (!params.sourceName) return { canPublish: false, reason: "no_source_name" };
@@ -85,7 +87,7 @@ export function canAutoPublishExternalSource(params: {
   if (!["high", "medium"].includes(params.confidence)) {
     return { canPublish: false, reason: `low_confidence` };
   }
-  if (!sourceMatchesCompany(params.title, params.snippet, params.companyName)) {
+  if (!sourceMatchesCompany(params.title, params.snippet, params.companyName, params.matchHint)) {
     return { canPublish: false, reason: "no_company_match" };
   }
   return { canPublish: true };
@@ -147,6 +149,7 @@ export async function autoPublishSafeDiscoverySources(input: {
     const shortSummary = truncateSourceExcerpt(source.snippet, 800);
     const language = source.source_language ?? "unknown";
 
+    const matchHint = [source.match_hint, source.source_url].filter(Boolean).join(" ");
     const { canPublish, reason } = canAutoPublishExternalSource({
       sourceUrl: normalizedUrl,
       sourceName: source.source_name,
@@ -156,13 +159,12 @@ export async function autoPublishSafeDiscoverySources(input: {
       sourceType,
       confidence: source.confidence,
       companyName: input.companyName,
+      matchHint: matchHint || null,
     });
 
     if (!canPublish) {
       skipped++;
-      if (process.env.NODE_ENV === "development") {
-        console.debug("[auto-publish] skipped", { url: normalizedUrl, reason });
-      }
+      console.info("[auto-publish] skipped", { url: normalizedUrl, reason });
       continue;
     }
 
