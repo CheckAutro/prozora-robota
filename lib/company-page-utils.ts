@@ -135,12 +135,41 @@ export function getExternalCompanyOpenSources(
   return sources.filter((source) => source.sourceType !== "rating");
 }
 
+export function isWorkOrRobotaDomain(sourceUrl: string | null, sourceName: string): boolean {
+  const url = (sourceUrl ?? "").toLowerCase();
+  const name = sourceName.toLowerCase();
+  return (
+    url.includes("work.ua") || url.includes("robota.ua") ||
+    name.includes("work.ua") || name.includes("robota.ua")
+  );
+}
+
+export function getExternalCompanyReviewSources(
+  sources: ExternalCompanySource[]
+): ExternalCompanySource[] {
+  return sources.filter(
+    (s) => s.sourceType === "reviews" && !isWorkOrRobotaDomain(s.sourceUrl, s.sourceName)
+  );
+}
+
+export function getExternalCompanyNonReviewOpenSources(
+  sources: ExternalCompanySource[]
+): ExternalCompanySource[] {
+  return sources.filter(
+    (s) =>
+      s.sourceType === "vacancy" ||
+      s.sourceType === "company_page" ||
+      s.sourceType === "article" ||
+      s.sourceType === "other"
+  );
+}
+
 export function getCompactOpenSourceCards(
   externalCompanySources: ExternalCompanySource[],
   openFacts: CompanyOpenFact[]
 ): CompactSourceCard[] {
   const cards: CompactSourceCard[] = [
-    ...getExternalCompanyOpenSources(externalCompanySources).map((source) => ({
+    ...getExternalCompanyNonReviewOpenSources(externalCompanySources).map((source) => ({
       id: `external-${source.id}`,
       sourceName: source.sourceName,
       sourceUrl: source.sourceUrl,
@@ -193,13 +222,16 @@ export function getCompactSourceBreakdown({
   externalReviewSignalSummary: ExternalReviewSignalSummary;
 }) {
   const ratingSources = getExternalCompanyRatingSources(externalCompanySources);
-  const reviewSources = externalCompanySources.filter((s) => s.sourceType === "reviews");
+  // Only count non-Work.ua/Robota.ua reviews as reputation evidence
+  const reviewSources = getExternalCompanyReviewSources(externalCompanySources);
   const vacancySources = externalCompanySources.filter((s) => s.sourceType === "vacancy");
   const companyPageSources = externalCompanySources.filter(
     (s) => s.sourceType === "company_page"
   );
   const totalExternalSources =
-    getCompactOpenSourceCards(externalCompanySources, openFacts).length + ratingSources.length;
+    getCompactOpenSourceCards(externalCompanySources, openFacts).length +
+    ratingSources.length +
+    reviewSources.length;
   const reputationSourcesTotal =
     facts.reviewCount +
     externalRatings.length +

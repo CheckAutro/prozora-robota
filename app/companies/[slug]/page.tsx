@@ -61,6 +61,7 @@ import {
   externalSourceTypeLabel,
   getExternalCompanyRatingSources,
   getExternalCompanyOpenSources,
+  getExternalCompanyReviewSources,
   getCompactOpenSourceCards,
   getCompactSourceBreakdown,
   getCompanyDataLevel,
@@ -245,7 +246,7 @@ function ExternalCompanySourcesSection({
             Відкриті джерела та вакансії
           </h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Це сторінки компаній, вакансії або відкриті згадки. Вони не є відгуками Прозора робота.
+            Це сторінки компаній, вакансії та відкриті згадки. Відгуки з відкритих джерел показані окремо вище.
           </p>
         </div>
         <span className="rounded-full border border-brand-200/70 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
@@ -342,6 +343,185 @@ function ExternalCompanySourcesSection({
         </div>
       )}
     </Card>
+  );
+}
+
+function hostFromSourceUrl(url: string | null): string | null {
+  if (!url) return null;
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
+}
+
+function ExternalReviewSourcesSection({
+  reviewSources,
+}: {
+  reviewSources: ExternalCompanySource[];
+}) {
+  const visible = reviewSources.slice(0, 3);
+  const hidden = reviewSources.slice(3);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold tracking-tight text-ink">
+            Відгуки з відкритих джерел
+          </h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Це узагальнення зовнішніх джерел. Вони не є відгуками Прозора робота і не впливають на внутрішній рейтинг.
+          </p>
+        </div>
+        {reviewSources.length > 0 && (
+          <span className="rounded-full border border-brand-200/70 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+            {reviewSources.length} джерел
+          </span>
+        )}
+      </div>
+
+      {reviewSources.length === 0 ? (
+        <Card className="flex items-center gap-2.5 border-brand-100 bg-brand-50/20 p-4 text-sm text-ink-soft">
+          <MessageSquareText className="h-4 w-4 shrink-0 text-ink-muted" />
+          Підтверджених відгуків із відкритих джерел поки немає. Спробуйте проаналізувати компанію щоб знайти нові джерела.
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-3">
+            {visible.map((source) => {
+              const host = hostFromSourceUrl(source.sourceUrl);
+              return (
+                <div
+                  key={source.id}
+                  className="flex flex-col rounded-xl border border-l-[3px] border-ink/[0.08] border-l-emerald-400/60 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink">{source.sourceName}</p>
+                      {host && (
+                        <p className="truncate text-[0.6875rem] text-ink-muted">{host}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                      {source.collectedAt && (
+                        <span className="text-[0.6875rem] text-ink-muted">
+                          {formatDate(source.collectedAt)}
+                        </span>
+                      )}
+                      <span className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                        source.confidence === "high" && "border-emerald-200 bg-emerald-50 text-emerald-800",
+                        source.confidence === "medium" && "border-amber-200 bg-amber-50 text-amber-700",
+                        source.confidence === "low" && "border-ink/[0.1] bg-ink/[0.04] text-ink-muted",
+                      )}>
+                        {CONFIDENCE_LABELS[source.confidence]}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                    {source.shortSummary}
+                  </p>
+
+                  {source.positivePoints.length > 0 && (
+                    <div className="mt-2.5">
+                      <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-emerald-700">
+                        Позитивні сигнали
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        {source.positivePoints.slice(0, 3).map((point) => (
+                          <li key={point} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
+                            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400" />
+                            {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {source.negativePoints.length > 0 && (
+                    <div className="mt-2.5">
+                      <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-red-600">
+                        Ризики / скарги
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        {source.negativePoints.slice(0, 3).map((point) => (
+                          <li key={point} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
+                            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-red-400" />
+                            {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {source.neutralFacts.length > 0 && (
+                    <div className="mt-2.5">
+                      <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-muted">
+                        Що перевірити
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        {source.neutralFacts.slice(0, 2).map((fact) => (
+                          <li key={fact} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
+                            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-ink-muted/50" />
+                            {fact}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {source.sourceUrl && (
+                    <div className="mt-auto pt-3">
+                      <a
+                        href={source.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-100"
+                      >
+                        Відкрити джерело ↗
+                      </a>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {hidden.length > 0 && (
+            <details className="rounded-xl border border-ink/[0.1] bg-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-ink">
+                Показати ще {hidden.length} джерел
+                <span className="accordion-chevron text-ink-muted">
+                  <ChevronDown className="h-4 w-4" />
+                </span>
+              </summary>
+              <div className="border-t border-ink/[0.06] p-3">
+                <div className="grid gap-2 text-sm text-ink-soft">
+                  {hidden.map((source) => (
+                    <div
+                      key={source.id}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-ink/[0.06] bg-ink/[0.02] px-3 py-2"
+                    >
+                      <span className="font-medium text-ink">{source.sourceName}</span>
+                      <span className="text-ink-muted">·</span>
+                      <span className="line-clamp-1 text-xs">{source.shortSummary}</span>
+                      {source.sourceUrl && (
+                        <a
+                          href={source.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-auto inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-100"
+                        >
+                          ↗
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -875,16 +1055,19 @@ function CompanySidebarPanel({
           <MetricTile
             label="Відгуки"
             value={facts.reviewCount}
+            sub="лише Прозора робота"
             accent={facts.reviewCount > 0}
           />
           <MetricTile
             label="Відкриті джерела"
             value={breakdown.totalExternalSources}
+            sub="зовнішні сайти та вакансії"
             accent={breakdown.totalExternalSources > 0}
           />
           <MetricTile
             label="Зовнішні оцінки"
             value={breakdown.ratingSourcesCount > 0 ? breakdown.ratingSourcesCount : "—"}
+            sub="рейтинги з відкритих сайтів"
             accent={breakdown.ratingSourcesCount > 0}
           />
         </div>
@@ -1455,18 +1638,21 @@ export default async function CompanyPage({
               externalReviewSignalSummary={externalReviewSignalSummary}
               externalCompanySourceSummary={externalCompanySourceSummary}
             />
-            <ExternalCompanySourcesSection
-              sources={externalCompanySources}
-              openFacts={openFacts}
-            />
             <CompanyReviewsCompactSection
               companySlug={mockFallback.slug}
               companyName={mockFallback.name}
               reviewCount={reviewFacts.reviewCount}
             />
+            <ExternalReviewSourcesSection
+              reviewSources={getExternalCompanyReviewSources(externalCompanySources)}
+            />
             <ExternalRatingsCompactSection
               externalRatings={externalRatings}
               externalCompanySources={externalCompanySources}
+            />
+            <ExternalCompanySourcesSection
+              sources={externalCompanySources}
+              openFacts={openFacts}
             />
             {externalReviewSignals.length > 0 && (
               <ExternalReviewSignalsSection signals={externalReviewSignals} />
@@ -1563,18 +1749,21 @@ export default async function CompanyPage({
             externalReviewSignalSummary={externalReviewSignalSummary}
             externalCompanySourceSummary={externalCompanySourceSummary}
           />
-          <ExternalCompanySourcesSection
-            sources={externalCompanySources}
-            openFacts={openFacts}
-          />
           <CompanyReviewsCompactSection
             companySlug={sbCompany.slug}
             companyName={sbCompany.name}
             reviewCount={reviewFacts.reviewCount}
           />
+          <ExternalReviewSourcesSection
+            reviewSources={getExternalCompanyReviewSources(externalCompanySources)}
+          />
           <ExternalRatingsCompactSection
             externalRatings={externalRatings}
             externalCompanySources={externalCompanySources}
+          />
+          <ExternalCompanySourcesSection
+            sources={externalCompanySources}
+            openFacts={openFacts}
           />
           {externalReviewSignals.length > 0 && (
             <ExternalReviewSignalsSection signals={externalReviewSignals} />

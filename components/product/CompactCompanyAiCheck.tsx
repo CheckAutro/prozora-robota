@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bot, ChevronDown, FileSearch, Loader2, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -470,6 +471,7 @@ export function CompactCompanyAiCheck({
 }: CompactCompanyAiCheckProps) {
   const [stage, setStage] = useState<Stage>({ type: "idle" });
   const [usage, setUsage] = useState<UsageState>({ type: "loading" });
+  const router = useRouter();
 
   useEffect(() => {
     let mounted = true;
@@ -488,6 +490,10 @@ export function CompactCompanyAiCheck({
       });
       setStage({ type: "result", data });
       setUsage({ type: "ready", ...data.usage });
+      // Refresh server components so newly published review sources become visible
+      if ((data.analysis.source_breakdown.auto_published_now_total ?? 0) > 0) {
+        router.refresh();
+      }
     } catch (err) {
       setStage({
         type: "error",
