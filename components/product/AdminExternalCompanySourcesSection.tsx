@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Square,
@@ -97,9 +98,19 @@ function originalLanguageLabel(value: string | null | undefined): string {
   return "мова: не визначено";
 }
 
-function filterItems(items: ExternalCompanySource[], query: { search: string; source: string; status: string; type: string }) {
+const AUTO_PUBLISH_MARKER = "Auto-published from external discovery";
+
+function isAutoPublished(item: ExternalCompanySource): boolean {
+  return Boolean(item.adminNote?.includes(AUTO_PUBLISH_MARKER));
+}
+
+function filterItems(
+  items: ExternalCompanySource[],
+  query: { search: string; source: string; status: string; type: string; autoPublished: boolean }
+) {
   const search = query.search.trim().toLowerCase();
   return items.filter((item) => {
+    if (query.autoPublished && !isAutoPublished(item)) return false;
     if (query.status && item.status !== query.status) return false;
     if (query.source && item.sourceName.toLowerCase() !== query.source.toLowerCase()) return false;
     if (query.type && item.sourceType !== query.type) return false;
@@ -122,7 +133,9 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
   const [discoverBusy, setDiscoverBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [filters, setFilters] = useState({ search: "", source: "", status: "", type: "" });
+  const [filters, setFilters] = useState({ search: "", source: "", status: "", type: "", autoPublished: false });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [pendingBulkAction, setPendingBulkAction] = useState<PendingBulkAction | null>(null);
@@ -274,6 +287,35 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
     } finally {
       setBusy(false);
     }
+  }
+
+  async function normalizeSingle(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/external-company-sources/bulk", {
+        method: "POST",
+        headers: getAdminHeaders(accessToken),
+        body: JSON.stringify({ action: "normalize_ukrainian", ids: [id] }),
+      });
+      const data = await res.json().catch(() => ({})) as { updated_count?: number; skipped_count?: number; errors?: Array<{ error: string }> };
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Не вдалося нормалізувати.");
+      const firstError = data.errors?.[0]?.error ? ` ${data.errors[0].error}` : "";
+      setMessage(`Нормалізовано: ${data.updated_count ?? 0}.${firstError}`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Помилка нормалізації.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEditedSummary() {
+    if (!editingId) return;
+    const id = editingId;
+    setEditingId(null);
+    await saveItem(id, { short_summary: editingText });
+    setEditingText("");
   }
 
   async function submitForm(action: "create" | "collect") {
@@ -572,6 +614,39 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
         </Button>
       </div>
 
+      {/* Quick-filter tab row */}
+      {(() => {
+        const autoPublishedCount = items.filter(isAutoPublished).length;
+        return (
+          <div className="flex flex-wrap gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => setFilters({ ...filters, autoPublished: false })}
+              className={cn(
+                "rounded-full border px-3 py-1 font-medium transition-colors",
+                !filters.autoPublished
+                  ? "border-brand-300 bg-brand-50 text-brand-700"
+                  : "border-ink/12 bg-white text-ink-soft hover:bg-ink/[0.03]"
+              )}
+            >
+              Усі <span className="ml-1 tabular-nums opacity-70">{items.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilters({ ...filters, autoPublished: true })}
+              className={cn(
+                "rounded-full border px-3 py-1 font-medium transition-colors",
+                filters.autoPublished
+                  ? "border-purple-300 bg-purple-50 text-purple-700"
+                  : "border-ink/12 bg-white text-ink-soft hover:bg-ink/[0.03]"
+              )}
+            >
+              Auto-published <span className="ml-1 tabular-nums opacity-70">{autoPublishedCount}</span>
+            </button>
+          </div>
+        );
+      })()}
+
       <div className="grid gap-3 md:grid-cols-4">
         <input
           className="w-full rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm focus-ring"
@@ -677,6 +752,11 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
                         <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-2 py-0.5 text-[11px] font-medium text-ink-soft">
                           {originalLanguageLabel(item.adminNote)}
                         </span>
+                        {isAutoPublished(item) && (
+                          <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700">
+                            Auto-published
+                          </span>
+                        )}
                       </div>
                       <p className="mt-1 text-xs text-ink-muted">
                         {item.sourceName} · {formatDate(item.collectedAt)}
@@ -695,6 +775,25 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
                     </Button>
                     <Button size="sm" variant="secondary" disabled={busy} onClick={() => void saveItem(item.id, { status: "rejected", is_public: false })}>
                       Відхилити
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => void normalizeSingle(item.id)}>
+                      Нормалізувати
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        if (editingId === item.id) {
+                          setEditingId(null);
+                          setEditingText("");
+                        } else {
+                          setEditingId(item.id);
+                          setEditingText(item.shortSummary);
+                        }
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" /> {editingId === item.id ? "Скасувати" : "Редагувати"}
                     </Button>
                     <Button size="sm" variant="ghost" disabled={busy} onClick={() => void deleteItem(item.id)}>
                       <Trash2 className="h-4 w-4" /> Видалити
@@ -725,11 +824,38 @@ export function AdminExternalCompanySourcesSection({ accessToken }: { accessToke
                     {item.neutralFacts.length > 0 && (
                       <p><span className="font-medium text-ink">Факти:</span> {item.neutralFacts.slice(0, 2).join("; ")}</p>
                     )}
+                    {item.adminNote && (
+                      <p className="rounded-lg bg-ink/[0.03] px-2.5 py-1.5 italic">
+                        <span className="not-italic font-medium text-ink">Нотатка:</span>{" "}
+                        {item.adminNote.length > 120 ? `${item.adminNote.slice(0, 120)}…` : item.adminNote}
+                      </p>
+                    )}
                     <p className="rounded-lg bg-ink/[0.03] px-2.5 py-1.5">
                       Доступні verified + public записи показуються на сайті окремо від відгуків.
                     </p>
                   </div>
                 </div>
+
+                {editingId === item.id && (
+                  <div className="mt-3 space-y-2 rounded-xl border border-brand-200 bg-brand-50/40 p-3">
+                    <p className="text-xs font-semibold text-brand-700">Редагувати коротке резюме</p>
+                    <textarea
+                      className="min-h-20 w-full rounded-xl border border-ink/12 bg-white px-3 py-2 text-sm focus-ring"
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      maxLength={800}
+                    />
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" disabled={busy || !editingText.trim()} onClick={() => void saveEditedSummary()}>
+                        Зберегти
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditingText(""); }}>
+                        Скасувати
+                      </Button>
+                      <span className="ml-auto text-xs text-ink-muted tabular-nums">{editingText.length}/800</span>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
