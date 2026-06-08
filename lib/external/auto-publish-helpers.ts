@@ -105,14 +105,24 @@ function guardSourceTypeForWorkRobota(
   return classifyExternalSource(signalType);
 }
 
+export interface AutoPublishResult {
+  autoPublished: number;
+  skipped: number;
+  attempted: number;
+}
+
 export async function autoPublishSafeDiscoverySources(input: {
   companySlug: string;
   companyName: string;
   sources: ExternalSourceCandidate[];
-}): Promise<number> {
-  if (!input.companySlug || !input.companyName || input.sources.length === 0) return 0;
+}): Promise<AutoPublishResult> {
+  if (!input.companySlug || !input.companyName || input.sources.length === 0) {
+    return { autoPublished: 0, skipped: 0, attempted: 0 };
+  }
 
-  let published = 0;
+  let autoPublished = 0;
+  let skipped = 0;
+  let attempted = 0;
   const processedUrls = new Set<string>();
 
   for (const source of input.sources) {
@@ -127,6 +137,8 @@ export async function autoPublishSafeDiscoverySources(input: {
     if (processedUrls.has(normalizedUrl)) continue;
     processedUrls.add(normalizedUrl);
 
+    attempted++;
+
     const sourceType = guardSourceTypeForWorkRobota(
       source.source_name,
       source.source_url,
@@ -135,7 +147,7 @@ export async function autoPublishSafeDiscoverySources(input: {
     const shortSummary = truncateSourceExcerpt(source.snippet, 800);
     const language = source.source_language ?? "unknown";
 
-    const { canPublish } = canAutoPublishExternalSource({
+    const { canPublish, reason } = canAutoPublishExternalSource({
       sourceUrl: normalizedUrl,
       sourceName: source.source_name,
       title: source.title,
@@ -146,7 +158,13 @@ export async function autoPublishSafeDiscoverySources(input: {
       companyName: input.companyName,
     });
 
-    if (!canPublish) continue;
+    if (!canPublish) {
+      skipped++;
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[auto-publish] skipped", { url: normalizedUrl, reason });
+      }
+      continue;
+    }
 
     const result = await upsertExternalCompanySource({
       company_slug: input.companySlug,
@@ -161,13 +179,16 @@ export async function autoPublishSafeDiscoverySources(input: {
       is_public: true,
       source_excerpt: truncateSourceExcerpt(source.snippet, 800),
       collected_at: new Date().toISOString(),
+      // Always write exact marker so admin filter can find it
       admin_note: `Auto-published from external discovery. Original language: ${language}`,
     });
 
-    if (result.ok && result.created) {
-      published++;
+    if (result.ok) {
+      autoPublished++;
+    } else {
+      skipped++;
     }
   }
 
-  return published;
+  return { autoPublished, skipped, attempted };
 }

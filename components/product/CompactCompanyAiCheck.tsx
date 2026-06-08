@@ -46,6 +46,9 @@ interface AiAnalysis {
     external_rating_sources?: number;
     reputation_sources_total?: number;
     found_external_sources: number;
+    discovered_now_total?: number;
+    auto_published_now_total?: number;
+    duplicate_skipped_total?: number;
   };
   disclaimer: string;
   finder_warnings?: string[];
@@ -386,6 +389,17 @@ function AiResultBody({ data }: { data: AiResponse }) {
           </div>
         </div>
       </details>
+
+      {/* Discovery stats (compact, only when non-zero) */}
+      {((data.analysis.source_breakdown.discovered_now_total ?? 0) > 0 ||
+        (data.analysis.source_breakdown.auto_published_now_total ?? 0) > 0) && (
+        <p className="text-xs text-ink-muted">
+          {(data.analysis.source_breakdown.discovered_now_total ?? 0) > 0 &&
+            `Знайдено нових джерел: ${data.analysis.source_breakdown.discovered_now_total}`}
+          {(data.analysis.source_breakdown.auto_published_now_total ?? 0) > 0 &&
+            ` · Опубліковано: ${data.analysis.source_breakdown.auto_published_now_total}`}
+        </p>
+      )}
 
       {/* Disclaimer */}
       <p className="flex items-start gap-2 rounded-xl bg-ink/[0.03] px-4 py-3 text-xs leading-relaxed text-ink-muted">

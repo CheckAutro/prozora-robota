@@ -9,7 +9,7 @@ import { applySparseReputationGuard } from "@/lib/ai/risk-safety";
 import { findEmployerExternalSources } from "@/lib/ai/external-source-finder";
 import { readVacancyUrl } from "@/lib/ai/safe-vacancy-url-reader";
 import { getPublicCompanyExternalSources } from "@/lib/external/company-sources";
-import { autoPublishSafeDiscoverySources } from "@/lib/external/auto-publish-helpers";
+import { autoPublishSafeDiscoverySources, type AutoPublishResult } from "@/lib/external/auto-publish-helpers";
 import type { AiAnalysisType, AiFetchStatus, ExternalSourceCandidate } from "@/lib/ai/types";
 import type { ExternalRating, ExternalReviewSignal, RiskLevel } from "@/lib/types";
 
@@ -319,6 +319,8 @@ export async function POST(req: NextRequest) {
     type: analysisType,
     isAdmin,
     provider: process.env.AI_PROVIDER || "fallback",
+    companySlug: optionalString(body.companySlug),
+    includeExternalSearch: body.includeExternalSearch !== false,
   });
   const usedBefore = await countUsage({
     userId: user?.id ?? null,
@@ -397,15 +399,32 @@ export async function POST(req: NextRequest) {
       })
     : { sources: [], warnings: ["Пошук відкритих джерел вимкнено."] };
 
-  // Auto-publish safe sources discovered during company analysis
+  console.info("[ai-analysis] discovery complete", {
+    companySlug: finalCompanySlug,
+    includeExternalSearch,
+    finderSourcesTotal: finder.sources.length,
+    finderSourcesExternal: finder.sources.filter((s) => s.source_name !== "Прозора робота").length,
+    finderWarnings: finder.warnings.length,
+  });
+
+  // Auto-publish safe sources: awaited before response so Vercel does not kill it
+  let autoPublishStats: AutoPublishResult = { autoPublished: 0, skipped: 0, attempted: 0 };
   if (analysisType === "company" && includeExternalSearch && finalCompanySlug && finalCompanyName && finder.sources.length > 0) {
-    void autoPublishSafeDiscoverySources({
-      companySlug: finalCompanySlug,
-      companyName: finalCompanyName,
-      sources: finder.sources,
-    }).catch((err: unknown) => {
+    try {
+      autoPublishStats = await autoPublishSafeDiscoverySources({
+        companySlug: finalCompanySlug,
+        companyName: finalCompanyName,
+        sources: finder.sources,
+      });
+      console.info("[ai-analysis] auto-publish complete", {
+        companySlug: finalCompanySlug,
+        attempted: autoPublishStats.attempted,
+        autoPublished: autoPublishStats.autoPublished,
+        skipped: autoPublishStats.skipped,
+      });
+    } catch (err: unknown) {
       console.warn("[ai-analysis] auto-publish failed:", err instanceof Error ? err.message : String(err));
-    });
+    }
   }
 
   const context: AnalyzeEmployerContext = {
@@ -482,6 +501,12 @@ export async function POST(req: NextRequest) {
       ...analysis,
       fetched_title: fetchedTitle,
       finder_warnings: finder.warnings,
+      source_breakdown: {
+        ...analysis.source_breakdown,
+        discovered_now_total: autoPublishStats.attempted,
+        auto_published_now_total: autoPublishStats.autoPublished,
+        duplicate_skipped_total: autoPublishStats.skipped,
+      },
     },
     usage: {
       limit,

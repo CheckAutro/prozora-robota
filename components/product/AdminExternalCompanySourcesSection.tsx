@@ -101,7 +101,15 @@ function originalLanguageLabel(value: string | null | undefined): string {
 const AUTO_PUBLISH_MARKER = "Auto-published from external discovery";
 
 function isAutoPublished(item: ExternalCompanySource): boolean {
-  return Boolean(item.adminNote?.includes(AUTO_PUBLISH_MARKER));
+  // New marker written by autoPublishSafeDiscoverySources
+  if (item.adminNote?.includes(AUTO_PUBLISH_MARKER)) return true;
+  // Legacy: created by admin discovery flow and subsequently promoted to verified+public
+  if (
+    item.status === "verified" &&
+    item.isPublic &&
+    item.adminNote?.includes("discovery query:")
+  ) return true;
+  return false;
 }
 
 function filterItems(
