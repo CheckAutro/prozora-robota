@@ -9,6 +9,7 @@ import {
 import { isWorkOrRobotaSource } from "@/lib/external/auto-publish-helpers";
 import { runEmployerAiAnalysisPrompt } from "@/lib/ai/ai-provider";
 import { rowToExternalCompanySource } from "@/lib/external/company-sources";
+import { readExternalSourceUrl } from "@/lib/external/source-fetcher";
 import type { ExternalCompanySource } from "@/lib/types";
 
 loadEnvConfig(process.cwd());
@@ -21,6 +22,7 @@ interface Args {
   company: string | null;
   onlyGeneric: boolean;
   minQuality: "generic" | "partial";
+  fetch: boolean; // default true — fetch public pages for richer extraction
 }
 
 function parseArgs(argv: string[]): Args {
@@ -29,10 +31,12 @@ function parseArgs(argv: string[]): Args {
   let company: string | null = null;
   let onlyGeneric = true;
   let minQuality: "generic" | "partial" = "generic";
+  let fetch = true;
 
   for (const arg of argv) {
     if (arg === "--apply") apply = true;
     else if (arg === "--all") onlyGeneric = false;
+    else if (arg === "--no-fetch") fetch = false;
     else if (arg.startsWith("--limit=")) {
       const n = parseInt(arg.slice("--limit=".length), 10);
       if (Number.isFinite(n) && n > 0) limit = Math.min(200, n);
@@ -44,7 +48,104 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { apply, limit, company, onlyGeneric, minQuality };
+  return { apply, limit, company, onlyGeneric, minQuality, fetch };
+}
+
+// ── Safe page fetch ────────────────────────────────────────────────────────────
+
+// Domains that require login, are social media, or won't return useful plain text
+const SKIP_FETCH_DOMAINS = [
+  "facebook.com", "instagram.com", "twitter.com", "x.com", "t.me", "telegram.me",
+  "linkedin.com", "tiktok.com", "youtube.com", "vk.com", "ok.ru",
+  "google.com", "apple.com", "microsoft.com",
+  // Job boards that block or require JS rendering
+  "hh.ua", "hh.ru", "indeed.com",
+];
+
+// Ukrainian-specific work-condition keywords for relevance windowing
+const WORK_KEYWORDS = [
+  "зарплат", "оплат", "графік", "керівн", "колектив", "оформл", "бонус",
+  "навантаж", "затримк", "співбесід", "кар'єр", "штраф", "понаднормов",
+  "стажуванн", "відгук", "відгуки", "відгуків", "review", "salary",
+  "working condition", "работодател", "условия работы",
+];
+
+function shouldSkipFetch(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return SKIP_FETCH_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return true;
+  }
+}
+
+function extractRelevantText(text: string, maxChars = 10000): string {
+  const WINDOW = 400;
+  const lower = text.toLowerCase();
+  const segments: Array<[number, number]> = [];
+
+  for (const kw of WORK_KEYWORDS) {
+    let idx = lower.indexOf(kw);
+    while (idx !== -1 && idx < text.length) {
+      const start = Math.max(0, idx - WINDOW);
+      const end = Math.min(text.length, idx + kw.length + WINDOW);
+      segments.push([start, end]);
+      idx = lower.indexOf(kw, idx + kw.length + 1);
+    }
+  }
+
+  if (segments.length === 0) return text.slice(0, maxChars);
+
+  // Merge overlapping / nearby segments
+  segments.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  let [cs, ce] = segments[0]!;
+  for (const [s, e] of segments.slice(1)) {
+    if (s <= ce + 80) {
+      ce = Math.max(ce, e);
+    } else {
+      merged.push([cs, ce]);
+      [cs, ce] = [s, e];
+    }
+  }
+  merged.push([cs, ce]);
+
+  const parts: string[] = [];
+  let total = 0;
+  for (const [s, e] of merged) {
+    if (total >= maxChars) break;
+    const chunk = text.slice(s, e).replace(/\s+/g, " ").trim();
+    if (chunk.length < 10) continue;
+    parts.push(chunk);
+    total += chunk.length + 4;
+  }
+
+  return parts.join(" … ").slice(0, maxChars);
+}
+
+interface PageFetchResult {
+  text: string;
+  fetchStatus: "success" | "blocked" | "timeout" | "failed" | "unsupported" | "skipped";
+  chars: number;
+}
+
+async function fetchPageText(url: string): Promise<PageFetchResult> {
+  if (!url || shouldSkipFetch(url)) {
+    return { text: "", fetchStatus: "skipped", chars: 0 };
+  }
+
+  const result = await readExternalSourceUrl(url, {
+    timeoutMs: 8000,
+    maxBytes: 300 * 1024,
+    allowAnyPublicHost: true,
+  });
+
+  if (result.status !== "success" || !result.text) {
+    return { text: "", fetchStatus: result.status, chars: 0 };
+  }
+
+  const relevant = extractRelevantText(result.text, 10000);
+  return { text: relevant, fetchStatus: "success", chars: relevant.length };
 }
 
 // ── Enrichment result ──────────────────────────────────────────────────────────
@@ -58,6 +159,8 @@ interface EnrichResult {
   topics: string[];
   method: "ai" | "heuristic" | "skip";
   skipReason?: string;
+  fetchStatus?: string;
+  fetchedChars?: number;
 }
 
 // ── Enhanced heuristics ────────────────────────────────────────────────────────
@@ -66,8 +169,8 @@ function cleanBullet(text: string, limit = 200): string {
   return text.replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
-function extractHeuristic(source: ExternalCompanySource): EnrichResult {
-  const raw = `${source.shortSummary} ${source.sourceExcerpt ?? ""}`;
+function extractHeuristic(source: ExternalCompanySource, textOverride?: string): EnrichResult {
+  const raw = textOverride ?? `${source.shortSummary} ${source.sourceExcerpt ?? ""}`;
   const text = raw.toLowerCase();
 
   const positivePoints: string[] = [];
@@ -218,12 +321,12 @@ function buildAiSystemPrompt(): string {
   ].join(" ");
 }
 
-function buildAiUserPrompt(source: ExternalCompanySource): string {
+function buildAiUserPrompt(source: ExternalCompanySource, textForAnalysis: string): string {
   return JSON.stringify({
     task: "extract_work_signals",
     company_name: source.companyName,
     source_name: source.sourceName,
-    source_excerpt: source.sourceExcerpt ?? source.shortSummary,
+    source_text: textForAnalysis,
     output_schema: {
       short_summary_uk: "1-2 sentence Ukrainian summary (max 400 chars)",
       positive_bullets: "max 3 concrete positives in Ukrainian, max 180 chars each",
@@ -239,6 +342,7 @@ function buildAiUserPrompt(source: ExternalCompanySource): string {
       "If no concrete data: set quality='generic', empty arrays, short_summary_uk='Джерело містить сторінку з відгуками або згадками про роботу в компанії, але без достатньо конкретного узагальнення. Деталі варто перевірити за посиланням.'",
       "If source text is Russian or English: translate bullets to Ukrainian",
       "Include actual numbers (ratings, review counts, salary amounts) if present in input",
+      "Do NOT invent any data not present in source_text",
     ],
   });
 }
@@ -281,14 +385,13 @@ function coerceAiResult(raw: unknown): EnrichResult | null {
   };
 }
 
-async function enrichWithAi(source: ExternalCompanySource): Promise<EnrichResult | null> {
-  const inputText = source.sourceExcerpt ?? source.shortSummary;
-  if (!inputText || inputText.trim().length < 20) return null;
+async function enrichWithAi(source: ExternalCompanySource, textForAnalysis: string): Promise<EnrichResult | null> {
+  if (!textForAnalysis || textForAnalysis.trim().length < 20) return null;
 
   try {
     const raw = await runEmployerAiAnalysisPrompt({
       systemPrompt: buildAiSystemPrompt(),
-      userPrompt: buildAiUserPrompt(source),
+      userPrompt: buildAiUserPrompt(source, textForAnalysis),
       schemaName: "external_source_enrichment_v1",
     });
     return coerceAiResult(raw);
@@ -301,12 +404,30 @@ async function enrichWithAi(source: ExternalCompanySource): Promise<EnrichResult
 
 async function enrichSource(
   source: ExternalCompanySource,
-  useAi: boolean
+  useAi: boolean,
+  pageFetch: boolean,
 ): Promise<EnrichResult> {
-  const inputText = source.sourceExcerpt ?? "";
+  const excerptText = source.sourceExcerpt ?? "";
+
+  // Attempt to fetch the real page for richer extraction
+  let fetchedChars = 0;
+  let fetchStatus: string | undefined;
+  let pageText = "";
+
+  if (pageFetch && source.sourceUrl) {
+    const fetchResult = await fetchPageText(source.sourceUrl);
+    fetchStatus = fetchResult.fetchStatus;
+    fetchedChars = fetchResult.chars;
+    pageText = fetchResult.text;
+  }
+
+  // Combine: prioritise fetched page, fall back to excerpt
+  const textForAnalysis = pageText
+    ? `${pageText}\n\n[snippet]: ${excerptText}`.slice(0, 12000)
+    : excerptText;
 
   // Skip if there's genuinely nothing to work with
-  if (!inputText.trim() && isGenericExternalSummary(source)) {
+  if (!textForAnalysis.trim() && isGenericExternalSummary(source)) {
     return {
       shortSummary: GENERIC_SUMMARY_FALLBACK,
       positivePoints: [],
@@ -315,18 +436,21 @@ async function enrichSource(
       quality: "generic",
       topics: [],
       method: "skip",
-      skipReason: "no source_excerpt and no useful existing content",
+      skipReason: "no page text, no source_excerpt, no useful existing content",
+      fetchStatus,
+      fetchedChars,
     };
   }
 
   // Try AI first if available
   if (useAi) {
-    const aiResult = await enrichWithAi(source);
-    if (aiResult) return aiResult;
+    const aiResult = await enrichWithAi(source, textForAnalysis);
+    if (aiResult) return { ...aiResult, fetchStatus, fetchedChars };
   }
 
-  // Fallback: enhanced heuristics
-  return extractHeuristic(source);
+  // Fallback: enhanced heuristics on combined text
+  const hResult = extractHeuristic(source, textForAnalysis);
+  return { ...hResult, fetchStatus, fetchedChars };
 }
 
 // ── DB update ──────────────────────────────────────────────────────────────────
@@ -384,6 +508,7 @@ async function main() {
   console.log(`Limit       : ${args.limit}`);
   if (args.company) console.log(`Company     : ${args.company}`);
   console.log(`AI          : ${aiEnabled ? "enabled" : "disabled (fallback to heuristics)"}`);
+  console.log(`Page fetch  : ${args.fetch ? "enabled (pass --no-fetch to skip)" : "disabled"}`);
   console.log("=".repeat(64));
 
   // Build query
@@ -453,6 +578,9 @@ async function main() {
   let errors = 0;
   let aiUsed = 0;
   let heuristicUsed = 0;
+  let fetchSuccess = 0;
+  let fetchFailed = 0;
+  let fetchSkipped = 0;
 
   for (let i = 0; i < targets.length; i++) {
     const source = targets[i];
@@ -467,7 +595,19 @@ async function main() {
       console.log(`  Excerpt : ${truncate(source.sourceExcerpt, 120)}`);
     }
 
-    const result = await enrichSource(source, aiEnabled);
+    const result = await enrichSource(source, aiEnabled, args.fetch);
+
+    // Track fetch stats
+    if (result.fetchStatus === "success") { fetchSuccess++; }
+    else if (result.fetchStatus === "skipped" || result.fetchStatus === undefined) { fetchSkipped++; }
+    else { fetchFailed++; }
+
+    if (args.fetch && source.sourceUrl) {
+      const fetchLabel = result.fetchStatus === "success"
+        ? `success (${result.fetchedChars ?? 0} chars)`
+        : result.fetchStatus ?? "skipped";
+      console.log(`  Fetch   : ${fetchLabel}`);
+    }
 
     if (result.method === "skip") {
       console.log(`  Result  : SKIP — ${result.skipReason}`);
@@ -531,6 +671,11 @@ async function main() {
   console.log(`Errors      : ${errors}`);
   console.log(`AI used     : ${aiUsed}`);
   console.log(`Heuristic   : ${heuristicUsed}`);
+  if (args.fetch) {
+    console.log(`Fetch ok    : ${fetchSuccess}`);
+    console.log(`Fetch fail  : ${fetchFailed}`);
+    console.log(`Fetch skip  : ${fetchSkipped}`);
+  }
   if (!args.apply && improved > 0) {
     console.log("\n(DRY RUN — no rows written. Re-run with --apply to write.)");
   }
