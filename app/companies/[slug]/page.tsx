@@ -62,6 +62,7 @@ import {
   getExternalCompanyRatingSources,
   getExternalCompanyOpenSources,
   getExternalCompanyReviewSources,
+  sortExternalReviewSources,
   getCompactOpenSourceCards,
   getCompactSourceBreakdown,
   getCompanyDataLevel,
@@ -72,7 +73,14 @@ import {
   getExternalReviewSourceQuality,
   QUALITY_LABELS,
   GENERIC_SUMMARY_FALLBACK,
+  type ExternalReviewQuality,
 } from "@/lib/external/external-review-quality";
+
+const QUALITY_TOOLTIPS: Record<ExternalReviewQuality, string> = {
+  specific: "є теми про умови роботи",
+  partial: "є окремі згадки",
+  generic: "джерело є, але без достатнього узагальнення",
+};
 
 // Pre-render known slugs at build time (both mock-data AND Supabase slugs
 // that were discovered at previous builds).
@@ -356,13 +364,155 @@ function hostFromSourceUrl(url: string | null): string | null {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
 }
 
+// Renders a single full review source card (used for specific/partial sources).
+function ReviewSourceCard({ source }: { source: ExternalCompanySource }) {
+  const host = hostFromSourceUrl(source.sourceUrl);
+  const quality = getExternalReviewSourceQuality(source);
+  const displaySummary = quality.isGenericOnly ? GENERIC_SUMMARY_FALLBACK : source.shortSummary;
+  const showBullets = !quality.isGenericOnly;
+  const accentColor =
+    quality.quality === "specific"
+      ? "border-l-emerald-400/60"
+      : quality.quality === "partial"
+        ? "border-l-amber-400/60"
+        : "border-l-ink/[0.15]";
+
+  return (
+    <div className={cn("flex flex-col rounded-xl border border-l-[3px] border-ink/[0.08] bg-white p-3", accentColor)}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold text-ink">{source.sourceName}</p>
+          {host && <p className="truncate text-[0.6875rem] text-ink-muted">{host}</p>}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {source.collectedAt && (
+            <span className="text-[0.6875rem] text-ink-muted">{formatDate(source.collectedAt)}</span>
+          )}
+          <span
+            title={QUALITY_TOOLTIPS[quality.quality]}
+            className={cn(
+              "rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold",
+              quality.quality === "specific" && "border-emerald-200 bg-emerald-50 text-emerald-800",
+              quality.quality === "partial" && "border-amber-200 bg-amber-50 text-amber-700",
+              quality.quality === "generic" && "border-ink/[0.1] bg-ink/[0.04] text-ink-muted",
+            )}
+          >
+            {QUALITY_LABELS[quality.quality]}
+          </span>
+        </div>
+      </div>
+
+      <p className="mt-2 text-sm leading-relaxed text-ink-soft">{displaySummary}</p>
+
+      {showBullets && source.positivePoints.length > 0 && (
+        <div className="mt-2.5">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-emerald-700">Позитивні сигнали</p>
+          <ul className="mt-1 space-y-1">
+            {source.positivePoints.slice(0, 3).map((point) => (
+              <li key={point} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400" />
+                {point}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {showBullets && source.negativePoints.length > 0 && (
+        <div className="mt-2.5">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-red-600">Ризики / скарги</p>
+          <ul className="mt-1 space-y-1">
+            {source.negativePoints.slice(0, 3).map((point) => (
+              <li key={point} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-red-400" />
+                {point}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {showBullets && source.neutralFacts.length > 0 && (
+        <div className="mt-2.5">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-muted">Що перевірити</p>
+          <ul className="mt-1 space-y-1">
+            {source.neutralFacts.slice(0, 2).map((fact) => (
+              <li key={fact} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-ink-muted/50" />
+                {fact}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {quality.topics.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {quality.topics.slice(0, 4).map((topic) => (
+            <span key={topic} className="rounded-md border border-ink/[0.08] bg-ink/[0.03] px-1.5 py-0.5 text-[0.625rem] font-medium text-ink-muted">
+              {topic}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {source.sourceUrl && (
+        <div className="mt-auto pt-3">
+          <a
+            href={source.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-100"
+          >
+            Відкрити джерело ↗
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compact row for overflow and collapsed generic sections.
+function ReviewSourceCompactRow({ source }: { source: ExternalCompanySource }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ink/[0.06] bg-ink/[0.02] px-3 py-2">
+      <span className="font-medium text-ink">{source.sourceName}</span>
+      <span className="text-ink-muted">·</span>
+      <span className="line-clamp-1 flex-1 text-xs text-ink-soft">
+        {source.shortSummary}
+      </span>
+      {source.sourceUrl && (
+        <a
+          href={source.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-100"
+        >
+          Відкрити джерело ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
 function ExternalReviewSourcesSection({
   reviewSources,
 }: {
   reviewSources: ExternalCompanySource[];
 }) {
-  const visible = reviewSources.slice(0, 3);
-  const hidden = reviewSources.slice(3);
+  // Sort: specific → partial → generic, then by confidence / topics / summary / date
+  const sorted = sortExternalReviewSources(reviewSources);
+  const usefulSources = sorted.filter((s) => getExternalReviewSourceQuality(s).quality !== "generic");
+  const genericSources = sorted.filter((s) => getExternalReviewSourceQuality(s).quality === "generic");
+  const allGeneric = usefulSources.length === 0;
+
+  // Main grid shows top 3 useful sources; falls back to all sources if every source is generic
+  const primarySources = allGeneric ? sorted.slice(0, 3) : usefulSources.slice(0, 3);
+  const morePrimary   = allGeneric ? sorted.slice(3)    : usefulSources.slice(3);
+
+  // Generic section only appears when better sources exist (otherwise generic are already in the main grid)
+  const showGenericSection = !allGeneric && genericSources.length > 0;
+  const hasQualitySplit    = !allGeneric && genericSources.length > 0;
 
   return (
     <section className="space-y-3">
@@ -376,9 +526,16 @@ function ExternalReviewSourcesSection({
           </p>
         </div>
         {reviewSources.length > 0 && (
-          <span className="rounded-full border border-brand-200/70 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
-            {reviewSources.length} джерел
-          </span>
+          <div className="text-right">
+            <span className="rounded-full border border-brand-200/70 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+              {reviewSources.length} джерел
+            </span>
+            {hasQualitySplit && (
+              <p className="mt-1 text-[0.6875rem] text-ink-muted">
+                конкретні/часткові: {usefulSources.length} · без конкретики: {genericSources.length}
+              </p>
+            )}
+          </div>
         )}
       </div>
 
@@ -389,151 +546,51 @@ function ExternalReviewSourcesSection({
         </Card>
       ) : (
         <div className="space-y-3">
+          {/* Top 3 useful (specific/partial) sources — or all-generic fallback */}
           <div className="grid gap-3 md:grid-cols-3">
-            {visible.map((source) => {
-              const host = hostFromSourceUrl(source.sourceUrl);
-              const quality = getExternalReviewSourceQuality(source);
-              const displaySummary = quality.isGenericOnly
-                ? GENERIC_SUMMARY_FALLBACK
-                : source.shortSummary;
-              const showBullets = !quality.isGenericOnly;
-              return (
-                <div
-                  key={source.id}
-                  className="flex flex-col rounded-xl border border-l-[3px] border-ink/[0.08] border-l-emerald-400/60 bg-white p-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-ink">{source.sourceName}</p>
-                      {host && (
-                        <p className="truncate text-[0.6875rem] text-ink-muted">{host}</p>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                      {source.collectedAt && (
-                        <span className="text-[0.6875rem] text-ink-muted">
-                          {formatDate(source.collectedAt)}
-                        </span>
-                      )}
-                      <span className={cn(
-                        "rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold",
-                        quality.quality === "specific" && "border-emerald-200 bg-emerald-50 text-emerald-800",
-                        quality.quality === "partial" && "border-amber-200 bg-amber-50 text-amber-700",
-                        quality.quality === "generic" && "border-ink/[0.1] bg-ink/[0.04] text-ink-muted",
-                      )}>
-                        {QUALITY_LABELS[quality.quality]}
-                      </span>
-                    </div>
-                  </div>
-
-                  <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-                    {displaySummary}
-                  </p>
-
-                  {showBullets && source.positivePoints.length > 0 && (
-                    <div className="mt-2.5">
-                      <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-emerald-700">
-                        Позитивні сигнали
-                      </p>
-                      <ul className="mt-1 space-y-1">
-                        {source.positivePoints.slice(0, 3).map((point) => (
-                          <li key={point} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
-                            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400" />
-                            {point}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {showBullets && source.negativePoints.length > 0 && (
-                    <div className="mt-2.5">
-                      <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-red-600">
-                        Ризики / скарги
-                      </p>
-                      <ul className="mt-1 space-y-1">
-                        {source.negativePoints.slice(0, 3).map((point) => (
-                          <li key={point} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
-                            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-red-400" />
-                            {point}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {showBullets && source.neutralFacts.length > 0 && (
-                    <div className="mt-2.5">
-                      <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-muted">
-                        Що перевірити
-                      </p>
-                      <ul className="mt-1 space-y-1">
-                        {source.neutralFacts.slice(0, 2).map((fact) => (
-                          <li key={fact} className="flex items-start gap-1.5 text-xs leading-relaxed text-ink-soft">
-                            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-ink-muted/50" />
-                            {fact}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {quality.topics.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {quality.topics.slice(0, 4).map((topic) => (
-                        <span key={topic} className="rounded-md border border-ink/[0.08] bg-ink/[0.03] px-1.5 py-0.5 text-[0.625rem] font-medium text-ink-muted">
-                          {topic}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {source.sourceUrl && (
-                    <div className="mt-auto pt-3">
-                      <a
-                        href={source.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-100"
-                      >
-                        Відкрити джерело ↗
-                      </a>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {primarySources.map((source) => (
+              <ReviewSourceCard key={source.id} source={source} />
+            ))}
           </div>
 
-          {hidden.length > 0 && (
+          {/* Remaining specific/partial sources (beyond the initial 3) */}
+          {morePrimary.length > 0 && (
             <details className="rounded-xl border border-ink/[0.1] bg-white">
               <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-ink">
-                Показати ще {hidden.length} джерел
+                Показати ще {morePrimary.length} джерел
                 <span className="accordion-chevron text-ink-muted">
                   <ChevronDown className="h-4 w-4" />
                 </span>
               </summary>
               <div className="border-t border-ink/[0.06] p-3">
-                <div className="grid gap-2 text-sm text-ink-soft">
-                  {hidden.map((source) => (
-                    <div
-                      key={source.id}
-                      className="flex flex-wrap items-center gap-2 rounded-lg border border-ink/[0.06] bg-ink/[0.02] px-3 py-2"
-                    >
-                      <span className="font-medium text-ink">{source.sourceName}</span>
-                      <span className="text-ink-muted">·</span>
-                      <span className="line-clamp-1 text-xs">{source.shortSummary}</span>
-                      {source.sourceUrl && (
-                        <a
-                          href={source.sourceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-auto inline-flex items-center gap-1 rounded-full border border-brand-200/70 bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-100"
-                        >
-                          ↗
-                        </a>
-                      )}
-                    </div>
+                <div className="grid gap-2">
+                  {morePrimary.map((source) => (
+                    <ReviewSourceCompactRow key={source.id} source={source} />
+                  ))}
+                </div>
+              </div>
+            </details>
+          )}
+
+          {/* Collapsed section for generic sources when useful sources exist */}
+          {showGenericSection && (
+            <details className="rounded-xl border border-ink/[0.1] bg-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-ink">
+                <span>
+                  Інші джерела без достатньої конкретики
+                  <span className="ml-1.5 text-ink-muted">({genericSources.length})</span>
+                </span>
+                <span className="accordion-chevron text-ink-muted">
+                  <ChevronDown className="h-4 w-4" />
+                </span>
+              </summary>
+              <div className="border-t border-ink/[0.06] p-3">
+                <p className="mb-3 rounded-lg bg-ink/[0.02] px-3 py-2 text-xs leading-relaxed text-ink-muted">
+                  Ці джерела містять сторінки з відгуками або згадками про роботу, але без достатньо конкретного узагальнення. Перевіряйте деталі за посиланнями.
+                </p>
+                <div className="grid gap-2">
+                  {genericSources.map((source) => (
+                    <ReviewSourceCompactRow key={source.id} source={source} />
                   ))}
                 </div>
               </div>
@@ -1051,11 +1108,13 @@ function CompanySidebarPanel({
     externalReviewSignalSummary.signalCount,
     externalCompanySourceSummary.sourceCount
   );
-  const hasReputationData = breakdown.reputationSourcesTotal > 0;
-  const confidence = hasReputationData
-    ? dataLevel === "Є достатньо даних" ? "середня" : "низька"
+  // Only concrete (specific/partial) sources count toward elevated confidence
+  const hasSpecificReputationData = breakdown.specificReputationSourcesTotal > 0;
+  const hasAnyReputationData = breakdown.reputationSourcesTotal > 0;
+  const confidence = hasSpecificReputationData && dataLevel === "Є достатньо даних"
+    ? "середня"
     : "низька";
-  const riskLabel = hasReputationData ? "Потребує перевірки" : "Недостатньо даних";
+  const riskLabel = hasAnyReputationData ? "Потребує перевірки" : "Недостатньо даних";
 
   const sidebarQuestions = [
     "Яка фіксована ставка і як виплачуються бонуси?",
@@ -1101,13 +1160,18 @@ function CompanySidebarPanel({
           <p className="mt-0.5 text-sm font-semibold text-ink">{dataLevelLabel(dataLevel)}</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Badge tone={hasReputationData ? "warning" : "muted"} dot>
+          <Badge tone={hasAnyReputationData ? "warning" : "muted"} dot>
             {riskLabel}
           </Badge>
           <Badge tone={confidence === "середня" ? "brand" : "muted"}>
             Впевненість: {confidence}
           </Badge>
         </div>
+        {!hasSpecificReputationData && breakdown.reviewSourcesCount > 0 && (
+          <p className="text-[0.6875rem] leading-relaxed text-ink-muted">
+            Є відкриті джерела, але конкретних даних про умови роботи недостатньо.
+          </p>
+        )}
       </Card>
 
       {/* Add review CTA */}

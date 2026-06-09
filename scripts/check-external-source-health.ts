@@ -100,7 +100,7 @@ async function main() {
 
   // Quality breakdown
   const qualityCounts = { generic: 0, partial: 0, specific: 0 };
-  const genericByCompany: Record<string, number> = {};
+  const qualityByCompany: Record<string, { specific: number; partial: number; generic: number }> = {};
   const summaryFrequency: Record<string, number> = {};
   const noUkrainianSummary: Array<{ id: string; slug: string; source: string; summary: string }> = [];
 
@@ -108,9 +108,9 @@ async function main() {
     const qualityResult = getExternalReviewSourceQuality(source);
     qualityCounts[qualityResult.quality] = (qualityCounts[qualityResult.quality] ?? 0) + 1;
 
-    if (qualityResult.quality === "generic") {
-      genericByCompany[source.companySlug] = (genericByCompany[source.companySlug] ?? 0) + 1;
-    }
+    const cq = qualityByCompany[source.companySlug] ?? { specific: 0, partial: 0, generic: 0 };
+    cq[qualityResult.quality]++;
+    qualityByCompany[source.companySlug] = cq;
 
     // Track repeated generic summaries
     const summaryKey = source.shortSummary.trim().toLowerCase().slice(0, 80);
@@ -135,10 +135,20 @@ async function main() {
     .slice(0, 10)
     .filter(([, count]) => count > 1);
 
-  // Top 10 companies with most generic review sources
+  // Companies with most generic sources (for enrichment targeting)
+  const genericByCompany = Object.fromEntries(
+    Object.entries(qualityByCompany).map(([slug, q]) => [slug, q.generic])
+  );
   const topGenericCompanies = Object.entries(genericByCompany)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
+
+  // Companies where first 3 visible cards would all be generic
+  // (has generic sources but zero specific or partial)
+  const genericFirstCompanies = Object.entries(qualityByCompany)
+    .filter(([, q]) => q.generic > 0 && q.specific === 0 && q.partial === 0)
+    .sort((a, b) => b[1].generic - a[1].generic)
+    .slice(0, 15);
 
   // ── Print report ─────────────────────────────────────────────────────────────
   const pad = (s: string, n: number) => s.padEnd(n, " ");
@@ -204,6 +214,32 @@ async function main() {
     console.log(`  ${pad("partial", 12)} ${qualityCounts.partial.toString().padStart(4)}  (${Math.round(qualityCounts.partial / total3 * 100)}%)`);
     console.log(`  ${pad("generic", 12)} ${qualityCounts.generic.toString().padStart(4)}  (${Math.round(qualityCounts.generic / total3 * 100)}%)`);
 
+    // Per-company table: useful (specific+partial) vs generic
+    const usefulCounts = Object.entries(qualityByCompany)
+      .map(([slug, q]) => ({ slug, useful: q.specific + q.partial, generic: q.generic }))
+      .filter(({ useful, generic }) => useful > 0 || generic > 0)
+      .sort((a, b) => b.useful - a.useful || b.generic - a.generic)
+      .slice(0, 15);
+
+    if (usefulCounts.length > 0) {
+      console.log("\nPer-company review quality (top 15 by useful count):");
+      console.log(`  ${pad("company", 28)} useful  generic`);
+      for (const { slug, useful, generic } of usefulCounts) {
+        const warn = useful === 0 && generic > 0 ? "  ← all generic" : "";
+        console.log(`  ${pad(slug, 28)} ${String(useful).padStart(6)}  ${String(generic).padStart(7)}${warn}`);
+      }
+    }
+
+    if (genericFirstCompanies.length > 0) {
+      console.log(`\n⚠ Companies where all visible cards would be generic (${genericFirstCompanies.length}):`);
+      for (const [slug, q] of genericFirstCompanies) {
+        console.log(`  ${pad(slug, 28)} ${q.generic} generic, 0 useful`);
+      }
+      console.log("  → These companies need enrichment (enrich:external-review-sources --company=<slug>)");
+    } else {
+      console.log("\n✓ Every company with public review sources has at least one specific/partial source.");
+    }
+
     if (topGenericCompanies.length > 0) {
       console.log("\nTop companies with most generic review sources:");
       for (const [slug, count] of topGenericCompanies) {
@@ -228,7 +264,9 @@ async function main() {
     }
 
     const enrichmentTarget = qualityCounts.generic;
-    console.log(`\nEnrichment target (generic): ${enrichmentTarget} sources`);
+    const usefulTotal = qualityCounts.specific + qualityCounts.partial;
+    console.log(`\nUseful sources (specific+partial) : ${usefulTotal}`);
+    console.log(`Enrichment target (generic)       : ${enrichmentTarget} sources`);
     if (enrichmentTarget > 0) {
       console.log(`  Run: npm run enrich:external-review-sources -- --dry-run --limit=5`);
       console.log(`  Then: npm run enrich:external-review-sources -- --apply --limit=20`);

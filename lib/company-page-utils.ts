@@ -7,6 +7,11 @@ import type {
 import type { PublishedCompanyReviewFacts } from "@/lib/company-service";
 import type { CompanyOpenFactSummary } from "@/lib/company-open-facts-service";
 import type { ExternalReviewSignalSummary } from "@/lib/external-review-signals-service";
+import {
+  getExternalReviewSourceQuality,
+  isSpecificReputationSource,
+  type ExternalReviewQuality,
+} from "@/lib/external/external-review-quality";
 
 export const CONFIDENCE_LABELS: Record<ExternalCompanySourceConfidence, string> = {
   low: "низька",
@@ -152,6 +157,38 @@ export function getExternalCompanyReviewSources(
   );
 }
 
+// Sort review sources by display usefulness: specific > partial > generic,
+// then by confidence, topic count, summary richness, and recency.
+export function sortExternalReviewSources(
+  sources: ExternalCompanySource[]
+): ExternalCompanySource[] {
+  const qualityOrder: Record<ExternalReviewQuality, number> = {
+    specific: 0,
+    partial: 1,
+    generic: 2,
+  };
+  const confidenceOrder: Record<ExternalCompanySourceConfidence, number> = {
+    high: 0,
+    medium: 1,
+    low: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const qa = getExternalReviewSourceQuality(a);
+    const qb = getExternalReviewSourceQuality(b);
+    const qDiff = qualityOrder[qa.quality] - qualityOrder[qb.quality];
+    if (qDiff !== 0) return qDiff;
+    const cDiff = confidenceOrder[a.confidence] - confidenceOrder[b.confidence];
+    if (cDiff !== 0) return cDiff;
+    const topicDiff = qb.topics.length - qa.topics.length;
+    if (topicDiff !== 0) return topicDiff;
+    const aSummaryLen = qa.isGenericOnly ? 0 : a.shortSummary.length;
+    const bSummaryLen = qb.isGenericOnly ? 0 : b.shortSummary.length;
+    const sumDiff = bSummaryLen - aSummaryLen;
+    if (sumDiff !== 0) return sumDiff;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+}
+
 export function getExternalCompanyNonReviewOpenSources(
   sources: ExternalCompanySource[]
 ): ExternalCompanySource[] {
@@ -238,6 +275,13 @@ export function getCompactSourceBreakdown({
     externalReviewSignalSummary.signalCount +
     reviewSources.length +
     ratingSources.length;
+  // Only count reviews/ratings with concrete data — generic auto-published entries excluded
+  const specificReputationSourcesTotal =
+    facts.reviewCount +
+    externalRatings.length +
+    externalReviewSignalSummary.signalCount +
+    reviewSources.filter(isSpecificReputationSource).length +
+    ratingSources.length;
   const openFactSourcesTotal =
     openFactSummary.factsCount + vacancySources.length + companyPageSources.length;
 
@@ -248,6 +292,7 @@ export function getCompactSourceBreakdown({
     vacancySourcesCount: vacancySources.length + getRealVacancyFacts(openFacts).length,
     companyPageSourcesCount: companyPageSources.length + getSourceSummaryFacts(openFacts).length,
     reputationSourcesTotal,
+    specificReputationSourcesTotal,
     openFactSourcesTotal,
   };
 }
