@@ -36,7 +36,8 @@
     "check:external-source-health": "npx tsx scripts/check-external-source-health.ts",
     "enrich:external-review-sources": "npx tsx scripts/enrich-external-review-sources.ts",
     "enrich:external-evidence": "npx tsx scripts/enrich-external-evidence.ts",
-    "check:employee-relevance": "npx tsx scripts/check-employee-relevance.ts"
+    "check:employee-relevance": "npx tsx scripts/check-employee-relevance.ts",
+    "backfill:foxtrot-sources": "npx tsx scripts/backfill-foxtrot-sources.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
