@@ -18,7 +18,7 @@ import {
   normalizeExternalSourceForPublic,
 } from "@/lib/external/source-normalizer";
 
-loadEnvConfig(process.cwd());
+loadEnvConfig(process.cwd(), true);
 
 // ── Priority company list ──────────────────────────────────────────────────────
 

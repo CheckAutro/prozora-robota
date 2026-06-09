@@ -11,8 +11,9 @@ import { runEmployerAiAnalysisPrompt } from "@/lib/ai/ai-provider";
 import { rowToExternalCompanySource } from "@/lib/external/company-sources";
 import { readExternalSourceUrl } from "@/lib/external/source-fetcher";
 import type { ExternalCompanySource } from "@/lib/types";
+import { checkEmployeeRelevance, logRelevanceResult } from "@/lib/evidence/employee-relevance";
 
-loadEnvConfig(process.cwd());
+loadEnvConfig(process.cwd(), true);
 
 // ── Arg parsing ────────────────────────────────────────────────────────────────
 
@@ -314,10 +315,13 @@ function extractHeuristic(source: ExternalCompanySource, textOverride?: string):
 function buildAiSystemPrompt(): string {
   return [
     "You analyze Ukrainian employer source excerpts.",
-    "Extract concrete work condition signals.",
+    "FIRST classify whether the text is about employees/employer (workplace, salary, working conditions, hiring) or about customers/consumers (bank services, product reviews, delivery, complaints about service).",
+    "Extract concrete work condition signals ONLY if the text is employee/employer relevant.",
     "Return valid JSON only. No markdown. No invented facts.",
     "All output text must be in Ukrainian (translate if needed).",
     "Never invent salary amounts, counts, or ratings that are not in the input.",
+    "CRITICAL: If the text is about customer complaints, bank products, delivery issues, product returns, ATMs, credit cards, or consumer satisfaction — set is_employee_relevant=false and return empty fact arrays.",
+    "CRITICAL: Do NOT convert customer/client complaints into employer working condition facts.",
   ].join(" ");
 }
 
@@ -328,18 +332,27 @@ function buildAiUserPrompt(source: ExternalCompanySource, textForAnalysis: strin
     source_name: source.sourceName,
     source_text: textForAnalysis,
     output_schema: {
-      short_summary_uk: "1-2 sentence Ukrainian summary (max 400 chars)",
-      positive_bullets: "max 3 concrete positives in Ukrainian, max 180 chars each",
-      risk_bullets: "max 3 concrete risks/complaints in Ukrainian, max 180 chars each",
-      neutral_bullets: "max 3 factual mentions (ratings, counts, schedule) in Ukrainian, max 180 chars each",
-      topics: "array of matching topics from: зарплата, оформлення, графік, затримки виплат, керівництво, колектив, навантаження, штрафи, бронювання, кар'єра, співбесіда",
+      is_employee_relevant: "boolean — true only if text is about employees/employer working conditions, false if about customers/products/services",
+      relevance_confidence: "high|medium|low",
+      evidence_category: "employee_review|employer_profile|vacancy|interview|salary|work_conditions|customer_complaint|consumer_review|product_service_review|unknown",
+      relevance_reason: "string (max 100 chars) — why classified as employee/consumer",
+      short_summary_uk: "1-2 sentence Ukrainian summary (max 400 chars). Empty string if not employee relevant.",
+      positive_bullets: "max 3 concrete positives in Ukrainian, max 180 chars each. Empty if not employee relevant.",
+      risk_bullets: "max 3 concrete risks/complaints IN UKRAINIAN about WORKING CONDITIONS, max 180 chars each. Empty if not employee relevant.",
+      neutral_bullets: "max 3 factual mentions (ratings, counts, schedule) in Ukrainian, max 180 chars each. Empty if not employee relevant.",
+      topics: "array of matching topics from: зарплата, оформлення, графік, затримки виплат, керівництво, колектив, навантаження, штрафи, бронювання, кар'єра, співбесіда. Empty if not employee relevant.",
       quality: "specific|partial|generic",
     },
     rules: [
-      "specific = has 2+ concrete topics OR one strong signal with real details",
-      "partial = has 1 concrete topic or one factual mention",
-      "generic = no concrete data about work conditions",
-      "If no concrete data: set quality='generic', empty arrays, short_summary_uk='Джерело містить сторінку з відгуками або згадками про роботу в компанії, але без достатньо конкретного узагальнення. Деталі варто перевірити за посиланням.'",
+      "CRITICAL: is_employee_relevant=false when text is about: bank clients, credit/deposit products, customer service, delivery to buyers, product returns, ATMs, consumer complaints.",
+      "CRITICAL: is_employee_relevant=true only when text mentions: working for the company, salary/wages, working schedule, management/team, hiring process, working conditions.",
+      "Examples of NOT employee relevant: 'ПриватБанк не повернув кошти клієнту', 'клієнти скаржаться на обслуговування у відділенні', 'проблема з карткою'.",
+      "Examples of EMPLOYEE relevant: 'працівники скаржаться на графік/зарплату/керівництво', 'зарплату затримують', 'умови праці у компанії'.",
+      "If is_employee_relevant=false: set quality='generic', all bullet arrays empty, short_summary_uk=''.",
+      "specific = has 2+ concrete employee topics OR one strong signal with real details",
+      "partial = has 1 concrete employee topic or one factual mention about working here",
+      "generic = no concrete data about working conditions here",
+      "If no concrete data: set quality='generic', short_summary_uk='Джерело містить сторінку з відгуками або згадками про роботу в компанії, але без достатньо конкретного узагальнення. Деталі варто перевірити за посиланням.'",
       "If source text is Russian or English: translate bullets to Ukrainian",
       "Include actual numbers (ratings, review counts, salary amounts) if present in input",
       "Do NOT invent any data not present in source_text",
@@ -350,6 +363,11 @@ function buildAiUserPrompt(source: ExternalCompanySource, textForAnalysis: strin
 function coerceAiResult(raw: unknown): EnrichResult | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
+
+  // AI classified as not employee relevant — skip this source
+  if (r.is_employee_relevant === false && String(r.relevance_confidence ?? "") === "high") {
+    return null;
+  }
 
   const shortSummary = typeof r.short_summary_uk === "string" && r.short_summary_uk.trim()
     ? r.short_summary_uk.trim().slice(0, 500)
@@ -593,6 +611,23 @@ async function main() {
     console.log(`  Summary : ${truncate(source.shortSummary, 120)}`);
     if (source.sourceExcerpt) {
       console.log(`  Excerpt : ${truncate(source.sourceExcerpt, 120)}`);
+    }
+
+    // Employee/employer relevance gate — reject consumer/client complaint sources
+    const relevance = checkEmployeeRelevance({
+      url: source.sourceUrl,
+      sourceName: source.sourceName,
+      sourceType: source.sourceType,
+      title: source.title,
+      snippet: source.sourceExcerpt,
+      summary: source.shortSummary,
+      bullets: [...source.positivePoints, ...source.negativePoints, ...source.neutralFacts],
+    });
+    logRelevanceResult(relevance, source.companySlug, source.sourceName);
+    if (!relevance.isEmployeeRelevant && (relevance.confidence === "high" || relevance.confidence === "medium")) {
+      console.log(`  → SKIPPED (not employee relevant: ${relevance.category})`);
+      skipped++;
+      continue;
     }
 
     const result = await enrichSource(source, aiEnabled, args.fetch);

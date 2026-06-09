@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   title: "Прозора робота — перевір роботодавця до відгуку",
   description:
     "Анонімні відгуки про роботодавців, реальність зарплати, оформлення та бронювання в Україні.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   openGraph: {
     title: "Прозора робота — перевір роботодавця до відгуку",
     description:

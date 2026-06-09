@@ -9,7 +9,7 @@ import {
 } from "@/lib/external/company-sources";
 import type { ExternalCompanySourceType } from "@/lib/types";
 
-loadEnvConfig(process.cwd());
+loadEnvConfig(process.cwd(), true);
 
 type CompanyRow = { slug: string; name: string };
 type ExternalSignalRow = Record<string, unknown>;

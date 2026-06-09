@@ -6,8 +6,9 @@ import {
 } from "@/lib/external/external-review-quality";
 import { rowToExternalCompanySource } from "@/lib/external/company-sources";
 import { primaryTextLooksUkrainian } from "@/lib/external/source-normalizer";
+import { extractEvidenceFromSource } from "@/lib/external/evidence-extractor";
 
-loadEnvConfig(process.cwd());
+loadEnvConfig(process.cwd(), true);
 
 const AUTO_PUBLISH_MARKER = "Auto-published from external discovery";
 
@@ -268,10 +269,77 @@ async function main() {
     console.log(`\nUseful sources (specific+partial) : ${usefulTotal}`);
     console.log(`Enrichment target (generic)       : ${enrichmentTarget} sources`);
     if (enrichmentTarget > 0) {
-      console.log(`  Run: npm run enrich:external-review-sources -- --dry-run --limit=5`);
-      console.log(`  Then: npm run enrich:external-review-sources -- --apply --limit=20`);
+      console.log(`  Run: npm run enrich:external-evidence -- --limit=5`);
+      console.log(`  Then: npm run enrich:external-evidence -- --apply --limit=20`);
     } else {
       console.log("  ✓ All review sources have specific or partial quality.");
+    }
+
+    // ── Evidence quality metrics ─────────────────────────────────────────────
+    console.log("\n" + "=".repeat(64));
+    console.log("Evidence Quality Metrics (extractEvidenceFromSource)");
+    console.log("=".repeat(64));
+
+    const evidenceResults = nonWorkRobotaReviews.map((src) => extractEvidenceFromSource(src));
+    const usefulForAnalysis = evidenceResults.filter((e) => e.useful_for_analysis).length;
+    const notUseful = evidenceResults.length - usefulForAnalysis;
+
+    const avgScore = evidenceResults.length > 0
+      ? Math.round(evidenceResults.reduce((s, e) => s + e.usefulness_score, 0) / evidenceResults.length)
+      : 0;
+
+    const statusCounts: Record<string, number> = {};
+    for (const e of evidenceResults) {
+      statusCounts[e.extraction_status] = (statusCounts[e.extraction_status] ?? 0) + 1;
+    }
+
+    const factsByCat: Record<string, number> = {};
+    for (const e of evidenceResults) {
+      for (const f of e.extracted_facts) {
+        factsByCat[f.category] = (factsByCat[f.category] ?? 0) + 1;
+      }
+    }
+
+    const totalFacts = Object.values(factsByCat).reduce((s, n) => s + n, 0);
+
+    console.log(`\nSources assessed        : ${evidenceResults.length}`);
+    console.log(`useful_for_analysis=true: ${usefulForAnalysis} (${Math.round(usefulForAnalysis / (evidenceResults.length || 1) * 100)}%)`);
+    console.log(`useful_for_analysis=fals: ${notUseful}`);
+    console.log(`Average usefulness score: ${avgScore}/100`);
+    console.log(`Total extracted facts   : ${totalFacts}`);
+
+    console.log("\nExtraction status breakdown:");
+    for (const [status, count] of Object.entries(statusCounts).sort((a, b) => b[1] - a[1])) {
+      console.log(`  ${pad(status, 20)} ${count}`);
+    }
+
+    if (Object.keys(factsByCat).length > 0) {
+      console.log("\nExtracted facts by category:");
+      for (const [cat, count] of Object.entries(factsByCat).sort((a, b) => b[1] - a[1])) {
+        console.log(`  ${pad(cat, 20)} ${count}`);
+      }
+    }
+
+    // Companies with zero useful evidence sources
+    const companySlugsWithSources = [...new Set(nonWorkRobotaReviews.map((s) => s.companySlug))];
+    const companiesWithNoEvidence = companySlugsWithSources.filter((slug) => {
+      const sources = nonWorkRobotaReviews.filter((s) => s.companySlug === slug);
+      const evidences = sources.map((s) => extractEvidenceFromSource(s));
+      return evidences.every((e) => !e.useful_for_analysis);
+    });
+    console.log(`\nCompanies with zero useful evidence: ${companiesWithNoEvidence.length}`);
+    if (companiesWithNoEvidence.length > 0 && companiesWithNoEvidence.length <= 10) {
+      for (const slug of companiesWithNoEvidence) {
+        console.log(`  ${slug}`);
+      }
+    }
+
+    if (notUseful > 0) {
+      console.log(`\n→ ${notUseful} sources need enrichment.`);
+      console.log(`  Run: npm run enrich:external-evidence`);
+      console.log(`  Run: npm run enrich:external-evidence -- --apply --limit=20`);
+    } else {
+      console.log("\n✓ All public review sources have useful evidence for analysis.");
     }
   }
 

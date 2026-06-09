@@ -27,6 +27,7 @@ import {
   completeSourceBreakdown,
 } from "./risk-safety";
 import { isSpecificReputationSource } from "@/lib/external/external-review-quality";
+import { extractEvidenceFromSource } from "@/lib/external/evidence-extractor";
 
 export interface AiReviewContext {
   id: string;
@@ -288,6 +289,139 @@ function sourceBreakdownFromContext(context: AnalyzeEmployerContext) {
   });
 }
 
+interface EvidencePackSourceDetail {
+  source_name: string;
+  source_type: string;
+  extraction_status: string;
+  useful: boolean;
+  usefulness_score: number;
+  rating?: string;
+  reviews_count?: number;
+  topics: string[];
+  top_negative: string[];
+  top_positive: string[];
+  concrete_numbers: Array<{ label: string; value: string }>;
+  note: string | null;
+}
+
+interface EvidencePack {
+  has_reputation_evidence: boolean;
+  useful_sources_count: number;
+  generic_sources_count: number;
+  total_extracted_facts: number;
+  top_negative_signals: Array<{ category: string; text: string; severity: string; confidence: string }>;
+  top_positive_signals: Array<{ category: string; text: string; confidence: string }>;
+  concrete_numbers: Array<{ label: string; value: string; source: string }>;
+  detected_topics: string[];
+  source_details: EvidencePackSourceDetail[];
+  analysis_note: string;
+}
+
+function buildEvidencePack(sources: ExternalCompanySource[]): EvidencePack {
+  if (sources.length === 0) {
+    return {
+      has_reputation_evidence: false,
+      useful_sources_count: 0,
+      generic_sources_count: 0,
+      total_extracted_facts: 0,
+      top_negative_signals: [],
+      top_positive_signals: [],
+      concrete_numbers: [],
+      detected_topics: [],
+      source_details: [],
+      analysis_note: "No external company sources available.",
+    };
+  }
+
+  const extracted = sources.map((src) => ({ src, evidence: extractEvidenceFromSource(src) }));
+  const useful = extracted.filter(({ evidence }) => evidence.useful_for_analysis);
+  const generic = extracted.filter(({ evidence }) => !evidence.useful_for_analysis);
+
+  const allNegFacts = useful.flatMap(({ evidence }) =>
+    evidence.extracted_facts.filter((f) => f.polarity === "negative")
+  );
+  const allPosFacts = useful.flatMap(({ evidence }) =>
+    evidence.extracted_facts.filter((f) => f.polarity === "positive")
+  );
+
+  const topNegative = allNegFacts
+    .sort((a, b) => (b.severity === "high" ? 1 : 0) - (a.severity === "high" ? 1 : 0))
+    .slice(0, 6)
+    .map((f) => ({ category: f.category, text: f.text_uk, severity: f.severity, confidence: f.confidence }));
+
+  const topPositive = allPosFacts.slice(0, 5).map((f) => ({
+    category: f.category,
+    text: f.text_uk,
+    confidence: f.confidence,
+  }));
+
+  const allNumbers = useful.flatMap(({ src, evidence }) =>
+    evidence.concrete_numbers.map((n) => ({ ...n, source: src.sourceName }))
+  );
+
+  const allTopics = [...new Set(useful.flatMap(({ evidence }) => evidence.detected_topics))];
+
+  const sourceDetails: EvidencePackSourceDetail[] = extracted.map(({ src, evidence }) => {
+    const ratingStr = src.ratingValue !== null
+      ? `${src.ratingValue}/${src.ratingScale ?? 5}`
+      : undefined;
+    let note: string | null = null;
+    if (evidence.extraction_status === "generic_only") {
+      note = "Only placeholder text — no actual data. Do NOT use as reputation evidence.";
+    } else if (evidence.extraction_status === "not_enough_text") {
+      note = "No usable text in this source.";
+    } else if (src.sourceType === "vacancy" || src.sourceType === "company_page") {
+      note = "Open fact (vacancy/company page) — not independent employer reputation.";
+    }
+    return {
+      source_name: src.sourceName,
+      source_type: src.sourceType,
+      extraction_status: evidence.extraction_status,
+      useful: evidence.useful_for_analysis,
+      usefulness_score: evidence.usefulness_score,
+      rating: ratingStr,
+      reviews_count: src.reviewsCount > 0 ? src.reviewsCount : undefined,
+      topics: evidence.detected_topics.slice(0, 5),
+      top_negative: evidence.extracted_facts
+        .filter((f) => f.polarity === "negative")
+        .slice(0, 3)
+        .map((f) => f.text_uk),
+      top_positive: evidence.extracted_facts
+        .filter((f) => f.polarity === "positive")
+        .slice(0, 3)
+        .map((f) => f.text_uk),
+      concrete_numbers: evidence.concrete_numbers.slice(0, 3).map((n) => ({ label: n.label, value: n.value })),
+      note,
+    };
+  });
+
+  const hasReputation = useful.some(({ src }) => isSpecificReputationSource(src));
+
+  let analysisNote: string;
+  if (useful.length === 0) {
+    analysisNote =
+      "ALL external sources are generic placeholders with no actual review or rating data. " +
+      "Do NOT use these as reputation evidence. Return risk_level unknown, confidence_level low.";
+  } else if (allNegFacts.some((f) => f.severity === "high")) {
+    analysisNote = `${useful.length} useful source(s) found with ${allNegFacts.length} negative signal(s) including high-severity concerns.`;
+  } else {
+    analysisNote = `${useful.length} useful source(s) found. ${generic.length} generic/useless source(s) excluded from reputation evidence.`;
+  }
+
+  return {
+    has_reputation_evidence: hasReputation,
+    useful_sources_count: useful.length,
+    generic_sources_count: generic.length,
+    total_extracted_facts: allNegFacts.length + allPosFacts.length,
+    top_negative_signals: topNegative,
+    top_positive_signals: topPositive,
+    concrete_numbers: allNumbers.slice(0, 8),
+    detected_topics: allTopics.slice(0, 10),
+    source_details: sourceDetails,
+    analysis_note: analysisNote,
+  };
+}
+
 function buildSystemPrompt(): string {
   return [
     "You analyze Ukrainian employer and vacancy context for job candidates.",
@@ -313,22 +447,12 @@ function sourceLanguageFromAdminNote(value: string | null | undefined): "uk" | "
 }
 
 function buildUserPrompt(context: AnalyzeEmployerContext): string {
+  const evidencePack = buildEvidencePack(context.externalCompanySources);
   const controlledContext = {
     ...context,
-    externalCompanySources: context.externalCompanySources.map((source) => ({
-      source_name: source.sourceName,
-      source_url: source.sourceUrl,
-      source_language: sourceLanguageFromAdminNote(source.adminNote),
-      source_type: source.sourceType,
-      confidence: source.confidence,
-      short_summary_uk: source.shortSummary,
-      positive_points_uk: source.positivePoints.slice(0, 4),
-      negative_points_uk: source.negativePoints.slice(0, 4),
-      neutral_facts_uk: source.neutralFacts.slice(0, 5),
-      rating_value: source.ratingValue,
-      rating_scale: source.ratingScale,
-      reviews_count: source.reviewsCount,
-    })),
+    // Replace raw generic source objects with structured evidence pack
+    externalCompanySources: undefined,
+    external_evidence_pack: evidencePack,
     foundExternalSources: context.foundExternalSources.map((source) => ({
       source_name: source.source_name,
       source_url: source.source_url,

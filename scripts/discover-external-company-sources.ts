@@ -18,7 +18,7 @@ import {
 import { upsertExternalCompanySource, externalCompanySourcesTableMissing } from "@/lib/external/company-sources";
 import type { ExternalCompanySourceType } from "@/lib/types";
 
-loadEnvConfig(process.cwd());
+loadEnvConfig(process.cwd(), true);
 
 interface Args {
   slug: string | null;

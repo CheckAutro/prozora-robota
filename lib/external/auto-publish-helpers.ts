@@ -2,6 +2,7 @@ import { normalizeExternalUrl, hostFromUrl } from "./source-normalizer";
 import { upsertExternalCompanySource } from "./company-sources";
 import type { ExternalSourceCandidate } from "@/lib/ai/types";
 import type { ExternalCompanySourceType } from "@/lib/types";
+import { checkEmployeeRelevance } from "@/lib/evidence/employee-relevance";
 
 export function normalizeSourceUrl(value: string): string | null {
   return normalizeExternalUrl(value, false);
@@ -90,6 +91,25 @@ export function canAutoPublishExternalSource(params: {
   if (!sourceMatchesCompany(params.title, params.snippet, params.companyName, params.matchHint)) {
     return { canPublish: false, reason: "no_company_match" };
   }
+
+  // Employee/employer relevance gate — skip for vacancy/company_page (always pass)
+  if (["reviews", "rating", "article"].includes(params.sourceType)) {
+    const relevance = checkEmployeeRelevance({
+      url: params.sourceUrl,
+      sourceName: params.sourceName,
+      sourceType: params.sourceType,
+      title: params.title,
+      snippet: params.snippet,
+      summary: params.shortSummary,
+    });
+    if (!relevance.isEmployeeRelevant && relevance.confidence === "high") {
+      return { canPublish: false, reason: `not_employee_relevant:${relevance.category}` };
+    }
+    if (!relevance.isEmployeeRelevant && relevance.confidence === "medium") {
+      return { canPublish: false, reason: `employee_relevance_review:${relevance.category}` };
+    }
+  }
+
   return { canPublish: true };
 }
 
