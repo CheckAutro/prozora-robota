@@ -36,9 +36,24 @@ export interface AiSourceBreakdown {
   external_vacancy_sources: number;
   external_company_page_sources: number;
   reputation_sources_total: number;
+  specific_reputation_sources_total: number;
   open_fact_sources_total: number;
   found_external_sources: number;
   vacancy_text: boolean;
+}
+
+export interface SourceEvidence {
+  source_name: string;
+  source_type: string;
+  what_found: string;
+  topics: string[];
+  limitation: string | null;
+}
+
+export interface ExtractedFact {
+  category: "salary" | "schedule" | "management" | "culture" | "benefits" | "reviews" | "growth" | "other";
+  fact: string;
+  evidence_strength: "confirmed" | "partial" | "inferred";
 }
 
 export interface AiAnalysisResult {
@@ -58,6 +73,16 @@ export interface AiAnalysisResult {
   recommendations: string[];
   source_breakdown: AiSourceBreakdown;
   disclaimer: string;
+  // Candidate-focused report fields
+  final_verdict: string | null;
+  bottom_line: string | null;
+  positive_signals: string[];
+  risk_signals: string[];
+  candidate_action_plan: string[];
+  source_evidence: SourceEvidence[];
+  extracted_facts: ExtractedFact[];
+  repeated_topics: string[];
+  practical_score: number | null;
 }
 
 export interface SafeVacancyReadResult {

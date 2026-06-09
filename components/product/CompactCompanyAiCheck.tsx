@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, ChevronDown, FileSearch, Loader2, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -11,7 +11,6 @@ import {
   getCompactSourceBreakdown,
   getCompanyDataLevel,
   dataLevelLabel,
-  CONFIDENCE_LABELS,
   getExternalCompanyRatingSources,
 } from "@/lib/company-page-utils";
 import type { PublishedCompanyReviewFacts } from "@/lib/company-service";
@@ -24,6 +23,20 @@ import type { CompanyOpenFact, ExternalCompanySource, ExternalRating } from "@/l
 
 type RiskLevel = "low" | "medium" | "high" | "unknown";
 type ConfidenceLevel = "low" | "medium" | "high";
+
+interface SourceEvidence {
+  source_name: string;
+  source_type: string;
+  what_found: string;
+  topics: string[];
+  limitation: string | null;
+}
+
+interface ExtractedFact {
+  category: string;
+  fact: string;
+  evidence_strength: "confirmed" | "partial" | "inferred";
+}
 
 interface AiAnalysis {
   summary: string;
@@ -46,6 +59,7 @@ interface AiAnalysis {
     external_company_sources: number;
     external_rating_sources?: number;
     reputation_sources_total?: number;
+    specific_reputation_sources_total?: number;
     found_external_sources: number;
     discovered_now_total?: number;
     auto_published_now_total?: number;
@@ -53,6 +67,16 @@ interface AiAnalysis {
   };
   disclaimer: string;
   finder_warnings?: string[];
+  // Candidate-focused fields
+  final_verdict?: string | null;
+  bottom_line?: string | null;
+  positive_signals?: string[];
+  risk_signals?: string[];
+  candidate_action_plan?: string[];
+  source_evidence?: SourceEvidence[];
+  extracted_facts?: ExtractedFact[];
+  repeated_topics?: string[];
+  practical_score?: number | null;
 }
 
 interface AiResponse {
@@ -90,6 +114,23 @@ const CONFIDENCE_LABEL_MAP: Record<ConfidenceLevel, string> = {
   low: "низька",
   medium: "середня",
   high: "висока",
+};
+
+const FACT_CATEGORY_LABELS: Record<string, string> = {
+  salary: "Зарплата",
+  schedule: "Графік",
+  management: "Керівництво",
+  culture: "Культура",
+  benefits: "Умови",
+  reviews: "Відгуки",
+  growth: "Розвиток",
+  other: "Інше",
+};
+
+const EVIDENCE_STRENGTH_CLASS: Record<string, string> = {
+  confirmed: "text-brand-700",
+  partial: "text-amber-700",
+  inferred: "text-ink-muted",
 };
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -141,7 +182,8 @@ function StaticBody({
     facts, externalRatings.length, openFactSummary.factsCount,
     externalReviewSignalSummary.signalCount, externalCompanySourceSummary.sourceCount,
   );
-  const hasReputationData = breakdown.reputationSourcesTotal > 0;
+  // Use specific (non-generic) sources as the threshold for reputation evidence
+  const hasReputationData = breakdown.specificReputationSourcesTotal > 0;
   const hasOpenFacts = breakdown.openFactSourcesTotal > 0 || breakdown.totalExternalSources > 0;
   const riskLabel = hasReputationData ? "Потребує перевірки" : "Недостатньо даних";
   const riskBadgeClass = hasReputationData
@@ -272,7 +314,7 @@ function StaticBody({
                 <p>Відкриті факти: {openFactSummary.factsCount}</p>
                 <p>Зовнішні джерела: {breakdown.totalExternalSources}</p>
                 <p>Зовнішні оцінки: {breakdown.ratingSourcesCount}</p>
-                <p>Репутаційні джерела: {breakdown.reputationSourcesTotal}</p>
+                <p>Специфічні репутаційні джерела: {breakdown.specificReputationSourcesTotal}</p>
               </div>
             </div>
           </div>
@@ -285,96 +327,179 @@ function StaticBody({
 // ── AI result body ────────────────────────────────────────────────────────────
 
 function AiResultBody({ data }: { data: AiResponse }) {
-  const [expanded, setExpanded] = useState(false);
   const meta = RISK_META[data.analysis.risk_level];
   const sb = data.analysis.source_breakdown;
   const externalSourceCount = sb.external_company_sources_total ?? sb.external_company_sources;
   const hasRatings = sb.external_ratings > 0 || (sb.external_rating_sources ?? 0) > 0;
-  const summary = data.analysis.summary.trim();
-  const isLong = summary.length > 200;
-  const displaySummary = expanded || !isLong ? summary : `${summary.slice(0, 200).trimEnd()}…`;
-  const keyFacts = [
-    ...data.analysis.known_facts.slice(0, 2),
-    data.analysis.risks[0],
-  ].filter(Boolean).slice(0, 3) as string[];
   const canShowScore =
     data.analysis.risk_level !== "unknown" &&
     data.analysis.data_level !== "insufficient" &&
     typeof data.analysis.risk_score === "number" &&
     data.analysis.risk_score > 0;
 
+  const verdictText = data.analysis.final_verdict ?? data.analysis.summary;
+  const bottomLine = data.analysis.bottom_line;
+  const positiveSignals = data.analysis.positive_signals ?? [];
+  const riskSignals = (data.analysis.risk_signals ?? []).length > 0
+    ? data.analysis.risk_signals ?? []
+    : data.analysis.risks.slice(0, 4);
+  const interviewQs = data.analysis.interview_questions.slice(0, 10);
+  const extractedFacts = data.analysis.extracted_facts ?? [];
+  const sourceEvidence = data.analysis.source_evidence ?? [];
+  const missingData = data.analysis.missing_data;
+  const actionPlan = (data.analysis.candidate_action_plan ?? []).length > 0
+    ? data.analysis.candidate_action_plan ?? []
+    : data.analysis.recommendations.slice(0, 5);
+
   return (
     <div className="space-y-4 p-4 sm:p-5">
-      {/* Summary */}
-      <div>
-        <p className="line-clamp-none text-sm font-semibold leading-relaxed text-ink">
-          {displaySummary || "Поки недостатньо даних для оцінки."}
-        </p>
-        {isLong && (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="mt-1 text-xs font-medium text-brand-700 hover:text-brand-800"
-          >
-            {expanded ? "Показати менше" : "Показати більше"}
-          </button>
+      {/* Verdict card */}
+      <div className="rounded-xl border border-ink/[0.07] bg-white p-4">
+        <p className="text-sm leading-relaxed text-ink">{verdictText}</p>
+        {bottomLine && (
+          <p className="mt-2 text-sm font-medium leading-relaxed text-ink-soft">{bottomLine}</p>
         )}
-      </div>
-
-      {/* Risk + confidence badges */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", meta.className)}>
-          Ризик: {meta.label}
-        </span>
-        <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
-          Впевненість: {CONFIDENCE_LABEL_MAP[data.analysis.confidence_level]}
-        </span>
-        {canShowScore && (
-          <span className="text-xs text-ink-muted">score {data.analysis.risk_score} / 100</span>
-        )}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className={cn("rounded-full border px-3 py-1 text-xs font-semibold", meta.className)}>
+            Ризик: {meta.label}
+          </span>
+          <span className="rounded-full border border-ink/10 bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink-soft">
+            Впевненість: {CONFIDENCE_LABEL_MAP[data.analysis.confidence_level]}
+          </span>
+          {canShowScore && (
+            <span className="text-xs text-ink-muted">score {data.analysis.risk_score} / 100</span>
+          )}
+          {typeof data.analysis.practical_score === "number" && data.analysis.practical_score !== null && (
+            <span className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+              Практична оцінка: {data.analysis.practical_score}/10
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Stats row */}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+        <div className={cn("rounded-xl border p-3", sb.internal_reviews > 0 ? "border-brand-200 bg-brand-50/70" : "border-ink/[0.06] bg-white")}>
           <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Відгуки</p>
           <p className="mt-1 text-base font-bold tabular-nums text-ink">{sb.internal_reviews}</p>
         </div>
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+        <div className={cn("rounded-xl border p-3", sb.open_facts > 0 ? "border-brand-200 bg-brand-50/70" : "border-ink/[0.06] bg-white")}>
           <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Відкриті факти</p>
           <p className="mt-1 text-base font-bold tabular-nums text-ink">{sb.open_facts}</p>
         </div>
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+        <div className={cn("rounded-xl border p-3", externalSourceCount > 0 ? "border-brand-200 bg-brand-50/70" : "border-ink/[0.06] bg-white")}>
           <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Зовн. джерела</p>
           <p className="mt-1 text-base font-bold tabular-nums text-ink">{externalSourceCount}</p>
         </div>
-        <div className="rounded-xl border border-ink/[0.06] bg-white p-3">
+        <div className={cn("rounded-xl border p-3", hasRatings ? "border-brand-200 bg-brand-50/70" : "border-ink/[0.06] bg-white")}>
           <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-muted">Оцінки</p>
           <p className="mt-1 text-base font-bold text-ink">{hasRatings ? "є" : "немає"}</p>
         </div>
       </div>
 
-      {/* Ключове (max 3) */}
-      <div className="rounded-xl border border-ink/[0.06] bg-ink/[0.02] p-4">
-        <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-ink-muted">Ключове</p>
-        {keyFacts.length === 0 ? (
-          <p className="mt-2 text-sm text-ink-soft">Недостатньо даних для оцінки ризику.</p>
-        ) : (
-          <ul className="mt-2 space-y-1.5">
-            {keyFacts.map((item) => (
-              <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
-                <span>{item}</span>
+      {/* Extracted facts */}
+      {extractedFacts.length > 0 && (
+        <div className="rounded-xl border border-ink/[0.08] bg-ink/[0.02] p-4">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-ink-muted">Що реально вдалося знайти</p>
+          <ul className="mt-2.5 space-y-2">
+            {extractedFacts.slice(0, 5).map((fact, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed">
+                <span className="mt-0.5 shrink-0 rounded bg-ink/[0.06] px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase text-ink-muted">
+                  {FACT_CATEGORY_LABELS[fact.category] ?? fact.category}
+                </span>
+                <span className={cn("flex-1", EVIDENCE_STRENGTH_CLASS[fact.evidence_strength] ?? "text-ink-soft")}>
+                  {fact.fact}
+                </span>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Details accordion (closed by default) */}
+      {/* Positive + risk signals */}
+      {(positiveSignals.length > 0 || riskSignals.length > 0) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {positiveSignals.length > 0 && (
+            <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+              <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-brand-700">Позитивні сигнали</p>
+              <ul className="mt-2 space-y-1.5">
+                {positiveSignals.slice(0, 4).map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {riskSignals.length > 0 && (
+            <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+              <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-amber-700">Що насторожує</p>
+              <ul className="mt-2 space-y-1.5">
+                {riskSignals.slice(0, 5).map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Source evidence */}
+      {sourceEvidence.length > 0 && (
+        <div className="rounded-xl border border-ink/[0.08] bg-white p-4">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-ink-muted">Що кажуть джерела</p>
+          <ul className="mt-2.5 divide-y divide-ink/[0.05]">
+            {sourceEvidence.slice(0, 5).map((ev, i) => (
+              <li key={i} className="py-2 first:pt-0 last:pb-0">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-xs font-semibold text-ink">{ev.source_name}</span>
+                  <span className="shrink-0 rounded bg-ink/[0.05] px-1.5 py-0.5 text-[0.625rem] uppercase text-ink-muted">{ev.source_type}</span>
+                </div>
+                <p className="mt-1 text-sm text-ink-soft">{ev.what_found}</p>
+                {ev.limitation && (
+                  <p className="mt-0.5 text-xs text-ink-muted">{ev.limitation}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Interview questions */}
+      {interviewQs.length > 0 && (
+        <div className="rounded-xl border border-ink/[0.08] bg-ink/[0.02] p-4">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-ink-muted">Питання на співбесіді</p>
+          <ol className="mt-2.5 space-y-1.5 pl-0">
+            {interviewQs.map((q, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed text-ink-soft">
+                <span className="mt-0.5 shrink-0 text-xs font-bold tabular-nums text-ink-muted">{i + 1}.</span>
+                <span>{q}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Missing data + action plan */}
+      {(missingData.length > 0 || actionPlan.length > 0) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {missingData.length > 0 && (
+            <CompactDetailsList title="Чого бракує" items={missingData} />
+          )}
+          {actionPlan.length > 0 && (
+            <CompactDetailsList title="Що зробити кандидату" items={actionPlan} />
+          )}
+        </div>
+      )}
+
+      {/* Details accordion */}
       <details className="rounded-xl border border-ink/[0.1] bg-white">
         <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-ink">
-          Показати деталі аналізу
+          Показати повний аналіз
           <span className="accordion-chevron text-ink-muted">
             <ChevronDown className="h-4 w-4" />
           </span>
@@ -382,16 +507,22 @@ function AiResultBody({ data }: { data: AiResponse }) {
         <div className="border-t border-ink/[0.06] p-4">
           <div className="grid gap-3 lg:grid-cols-2">
             <CompactDetailsList title="Що відомо" items={data.analysis.known_facts} />
-            <CompactDetailsList title="Відкриті джерела" items={data.analysis.external_findings} />
+            <CompactDetailsList title="Зовнішні джерела" items={data.analysis.external_findings} />
             <CompactDetailsList title="Ризики" items={data.analysis.risks} />
-            <CompactDetailsList title="Чого бракує" items={data.analysis.missing_data} />
-            <CompactDetailsList title="Питання на співбесіді" items={data.analysis.interview_questions} />
             <CompactDetailsList title="Рекомендації" items={data.analysis.recommendations} />
           </div>
         </div>
       </details>
 
-      {/* Discovery stats — admin-only diagnostic line */}
+      {/* Legal registry placeholder */}
+      <div className="rounded-xl border border-ink/[0.07] bg-ink/[0.015] p-4">
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-widest text-ink-muted">Юридичні та державні реєстри</p>
+        <p className="mt-1.5 text-sm text-ink-muted">
+          Не перевірено в цьому звіті. Рекомендуємо самостійно перевірити компанію в ЄДР, реєстрі судових справ та ДФС.
+        </p>
+      </div>
+
+      {/* Discovery stats — admin-only */}
       {(data.usage.isAdmin || data.usage.unlimited) &&
         ((data.analysis.source_breakdown.discovered_now_total ?? 0) > 0 ||
           (data.analysis.source_breakdown.auto_published_now_total ?? 0) > 0) && (
@@ -471,6 +602,8 @@ export function CompactCompanyAiCheck({
 }: CompactCompanyAiCheckProps) {
   const [stage, setStage] = useState<Stage>({ type: "idle" });
   const [usage, setUsage] = useState<UsageState>({ type: "loading" });
+  const [roleContext, setRoleContext] = useState("");
+  const roleInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -487,10 +620,10 @@ export function CompactCompanyAiCheck({
         companySlug,
         companyName,
         includeExternalSearch: true,
+        roleContext: roleContext.trim() || undefined,
       });
       setStage({ type: "result", data });
       setUsage({ type: "ready", ...data.usage });
-      // Refresh server components so newly published review sources become visible
       if ((data.analysis.source_breakdown.auto_published_now_total ?? 0) > 0) {
         router.refresh();
       }
@@ -502,7 +635,6 @@ export function CompactCompanyAiCheck({
     }
   }
 
-  const isAdmin = usage.type === "ready" && (usage.isAdmin || usage.unlimited);
   const isLoading = stage.type === "loading";
 
   return (
@@ -510,21 +642,36 @@ export function CompactCompanyAiCheck({
       {/* ── Header (always visible) ── */}
       <div className="border-b border-brand-100 bg-gradient-to-r from-brand-50/80 to-transparent px-4 pb-5 pt-5 sm:px-5">
         <p className="text-[0.625rem] font-semibold uppercase tracking-widest text-brand-600">
-          Аналіз на основі доступних даних
+          Практичний аналіз для кандидата
         </p>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-display text-lg font-bold tracking-tight text-ink">
-              Швидка перевірка
+              Швидка перевірка роботодавця
             </h2>
             <p className="mt-1 text-sm leading-relaxed text-ink-soft">
-              Аналіз на основі доступних відгуків, відкритих джерел і вакансій.
+              Аналіз на основі відгуків, відкритих джерел і вакансій.
             </p>
           </div>
         </div>
 
+        {/* Role context input */}
+        {stage.type === "idle" && (
+          <div className="mt-3">
+            <input
+              ref={roleInputRef}
+              type="text"
+              value={roleContext}
+              onChange={(e) => setRoleContext(e.target.value)}
+              placeholder="Посада або вакансія (необов'язково)"
+              maxLength={120}
+              className="w-full rounded-lg border border-ink/[0.12] bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400/30"
+            />
+          </div>
+        )}
+
         {/* Buttons row */}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           <Button
             onClick={() => void handleAnalyze()}
             disabled={isLoading}

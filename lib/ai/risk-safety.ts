@@ -17,6 +17,7 @@ export function completeSourceBreakdown(input: {
   externalRatings: number;
   externalReviewSignals: number;
   externalCompanySourceTypes: string[];
+  specificReviewSourcesCount: number;
   foundExternalSources: number;
   vacancyText: boolean;
 }): AiSourceBreakdown {
@@ -43,6 +44,12 @@ export function completeSourceBreakdown(input: {
       input.externalReviewSignals +
       externalReviewSources +
       externalRatingSources,
+    specific_reputation_sources_total:
+      input.internalReviews +
+      input.externalRatings +
+      input.externalReviewSignals +
+      input.specificReviewSourcesCount +
+      externalRatingSources,
     open_fact_sources_total: input.openFacts + externalVacancySources + externalCompanyPageSources,
     found_external_sources: input.foundExternalSources,
     vacancy_text: input.vacancyText,
@@ -63,6 +70,14 @@ export function normalizeSourceBreakdown(value: Partial<AiSourceBreakdown> | nul
   const openFacts = numberValue("open_facts");
   const externalRatings = numberValue("external_ratings");
   const externalSignals = numberValue("external_signals");
+  const reputationSourcesTotal =
+    numberValue("reputation_sources_total") ||
+    internalReviews + externalRatings + externalSignals + externalReviewSources + externalRatingSources;
+  // Prefer explicit specific count; fall back to reputation total only when not provided at all.
+  const specificReputationSourcesTotal =
+    "specific_reputation_sources_total" in (value ?? {})
+      ? numberValue("specific_reputation_sources_total")
+      : reputationSourcesTotal;
 
   return {
     internal_reviews: internalReviews,
@@ -75,9 +90,8 @@ export function normalizeSourceBreakdown(value: Partial<AiSourceBreakdown> | nul
     external_rating_sources: externalRatingSources,
     external_vacancy_sources: externalVacancySources,
     external_company_page_sources: externalCompanyPageSources,
-    reputation_sources_total:
-      numberValue("reputation_sources_total") ||
-      internalReviews + externalRatings + externalSignals + externalReviewSources + externalRatingSources,
+    reputation_sources_total: reputationSourcesTotal,
+    specific_reputation_sources_total: specificReputationSourcesTotal,
     open_fact_sources_total:
       numberValue("open_fact_sources_total") ||
       openFacts + externalVacancySources + externalCompanyPageSources,
@@ -88,6 +102,10 @@ export function normalizeSourceBreakdown(value: Partial<AiSourceBreakdown> | nul
 
 export function hasReputationEvidence(breakdown: Partial<AiSourceBreakdown> | null | undefined): boolean {
   return normalizeSourceBreakdown(breakdown).reputation_sources_total > 0;
+}
+
+export function hasSpecificReputationEvidence(breakdown: Partial<AiSourceBreakdown> | null | undefined): boolean {
+  return normalizeSourceBreakdown(breakdown).specific_reputation_sources_total > 0;
 }
 
 function unique(items: string[]): string[] {
@@ -115,7 +133,7 @@ export function applySparseReputationGuard(
   breakdownValue: Partial<AiSourceBreakdown> | null | undefined
 ): AiAnalysisResult {
   const breakdown = normalizeSourceBreakdown(breakdownValue);
-  if (hasReputationEvidence(breakdown) || breakdown.vacancy_text) {
+  if (hasSpecificReputationEvidence(breakdown) || breakdown.vacancy_text) {
     return {
       ...analysis,
       source_breakdown: breakdown,

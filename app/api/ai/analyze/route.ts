@@ -26,6 +26,7 @@ interface AnalyzeBody {
   vacancyText?: unknown;
   vacancyUrl?: unknown;
   includeExternalSearch?: unknown;
+  roleContext?: unknown;
 }
 
 interface CompanyRow {
@@ -347,6 +348,7 @@ export async function POST(req: NextRequest) {
   let inputCompanyName = optionalString(body.companyName);
   const vacancyUrl = optionalString(body.vacancyUrl);
   const vacancyText = optionalString(body.vacancyText);
+  const roleContext = optionalString(body.roleContext);
   const includeExternalSearch = body.includeExternalSearch !== false;
 
   let fetchedText: string | null = null;
@@ -439,6 +441,7 @@ export async function POST(req: NextRequest) {
     vacancyText: vacancyText ?? "",
     vacancyUrl,
     fetchedText: fetchedText ?? "",
+    roleContext,
     internalReviews: contextData.reviews,
     openFacts: contextData.openFacts,
     externalRatings: contextData.externalRatings,
@@ -447,6 +450,7 @@ export async function POST(req: NextRequest) {
     foundExternalSources: finder.sources,
   };
 
+  const specificReviewCount = context.externalCompanySources.filter((source) => isSpecificReputationSource(source)).length;
   const analysis = applySparseReputationGuard(
     await analyzeEmployer(context),
     {
@@ -464,7 +468,12 @@ export async function POST(req: NextRequest) {
         context.internalReviews.length +
         context.externalRatings.length +
         context.externalSignals.length +
-        context.externalCompanySources.filter((source) => isSpecificReputationSource(source)).length,
+        context.externalCompanySources.filter((source) => source.sourceType === "reviews" || source.sourceType === "rating").length,
+      specific_reputation_sources_total:
+        context.internalReviews.length +
+        context.externalRatings.length +
+        context.externalSignals.length +
+        specificReviewCount,
       open_fact_sources_total:
         context.openFacts.length +
         context.externalCompanySources.filter((source) => source.sourceType === "vacancy" || source.sourceType === "company_page").length,

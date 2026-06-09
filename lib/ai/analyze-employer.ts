@@ -15,6 +15,8 @@ import type {
   AiConfidenceLevel,
   AiDataLevel,
   ExternalSourceCandidate,
+  ExtractedFact,
+  SourceEvidence,
 } from "./types";
 import {
   getEmployerAiProviderName,
@@ -56,6 +58,7 @@ export interface AnalyzeEmployerContext {
   vacancyText: string;
   vacancyUrl: string | null;
   fetchedText: string;
+  roleContext: string | null;
   internalReviews: AiReviewContext[];
   openFacts: AiOpenFactContext[];
   externalRatings: ExternalRating[];
@@ -279,6 +282,7 @@ function sourceBreakdownFromContext(context: AnalyzeEmployerContext) {
     externalRatings: context.externalRatings.length,
     externalReviewSignals: context.externalSignals.length,
     externalCompanySourceTypes: context.externalCompanySources.map((source) => source.sourceType),
+    specificReviewSourcesCount: context.externalCompanySources.filter((source) => isSpecificReputationSource(source)).length,
     foundExternalSources: context.foundExternalSources.length,
     vacancyText: hasVacancyText(context),
   });
@@ -286,17 +290,20 @@ function sourceBreakdownFromContext(context: AnalyzeEmployerContext) {
 
 function buildSystemPrompt(): string {
   return [
-    "You analyze Ukrainian employer and vacancy context.",
+    "You analyze Ukrainian employer and vacancy context for job candidates.",
     "Return valid JSON only. Do not use Markdown.",
     "Never invent reviews, salaries, ratings, reputation, or facts.",
-    "If data is insufficient, say insufficient data.",
+    "If data is insufficient, say insufficient data explicitly.",
     "AI analysis is not a review and does not affect ratings.",
     "Separate: 1) internal reviews, 2) open facts, 3) external ratings, 4) external signals, 5) vacancy text, 6) AI conclusion.",
     "Also consider verified external company sources separately from internal reviews.",
     "Do not classify company risk as low only because no negative data exists.",
-    "If there are no internal reviews, no external ratings, and no verified review/rating sources, return risk_level unknown, risk_score null, confidence_level low.",
+    "ABSOLUTE RULE: If there are no internal reviews, no external ratings, no external review signals, and no verified review/rating sources with actual data, return risk_level unknown, risk_score null, confidence_level low.",
+    "ABSOLUTE RULE: Generic review pages (source exists but no rating value, no review count, no specific negatives) are NOT reputation evidence.",
+    "ABSOLUTE RULE: Work.ua and Robota.ua pages are vacancy/company open facts only — never basis for risk_level low.",
+    "ABSOLUTE RULE: Never show confidence_level high unless there are internal reviews, external ratings with values, or multiple specific external review sources.",
     "Vacancy pages and company pages are open facts, not reputation evidence.",
-    "Work.ua and Robota.ua vacancy/company pages can support open facts, but they are not enough to conclude low risk.",
+    "Personalize interview questions and candidate_action_plan to the candidate's role context if provided.",
   ].join(" ");
 }
 
@@ -333,16 +340,28 @@ function buildUserPrompt(context: AnalyzeEmployerContext): string {
   };
   return JSON.stringify({
     schema: {
-      summary: "string",
+      summary: "string: overall situation in 2-3 sentences for a job candidate",
       risk_level: "low|medium|high|unknown",
-      risk_score: "0..100 integer or null when data is insufficient, risk/completeness only, not employer rating",
-      confidence_level: "low|medium|high",
+      risk_score: "0..100 integer or null when data is insufficient — measures risk only, not employer quality",
+      confidence_level: "low|medium|high — low unless there are real internal reviews or verified external ratings with values",
       data_level: "insufficient|partial|enough",
+      final_verdict: "string: 1-2 sentences — what this employer looks like for a job candidate specifically",
+      bottom_line: "string: 1-2 sentences — what the candidate should do as their next practical step",
+      positive_signals: "string[]: concrete positive things found in the data (max 5)",
+      risk_signals: "string[]: concrete red flags or concerns (max 6)",
+      candidate_action_plan: "string[]: specific actions the candidate should take before/during/after interview (max 6)",
+      source_evidence: [
+        { source_name: "string", source_type: "reviews|rating|vacancy|company_page", what_found: "string max 80 chars", topics: "string[]", limitation: "string or null" }
+      ],
+      extracted_facts: [
+        { category: "salary|schedule|management|culture|benefits|reviews|growth|other", fact: "string max 80 chars", evidence_strength: "confirmed|partial|inferred" }
+      ],
+      repeated_topics: "string[]: topics mentioned in multiple sources (max 5)",
       known_facts: "string[]",
       external_findings: "string[]",
       risks: "string[]",
       missing_data: "string[]",
-      interview_questions: "string[]",
+      interview_questions: "string[8-12]: specific, practical questions for this employer/role — not generic",
       recommendations: "string[]",
       source_breakdown: {
         internal_reviews: "number",
@@ -356,22 +375,27 @@ function buildUserPrompt(context: AnalyzeEmployerContext): string {
         external_vacancy_sources: "number",
         external_company_page_sources: "number",
         reputation_sources_total: "number",
+        specific_reputation_sources_total: "number",
         open_fact_sources_total: "number",
         found_external_sources: "number",
         vacancy_text: "boolean",
       },
+      practical_score: "1..10 integer or null — practical overall rating for a candidate (not just risk)",
       disclaimer: "string",
     },
     rules: [
       "Do not copy external reviews as if they are ours.",
       "Do not invent reviews, salaries, ratings, or reputation.",
       "Do not claim official employment, salaries, delays, booking, or reputation unless present in context.",
-      "If data is insufficient, return risk_level unknown, confidence_level low, and risk_score null.",
-      "Do not classify company risk as low only because no negative data exists.",
-      "If there are no internal reviews, no external ratings, no external review signals, and no verified external review/rating sources, return risk_level unknown, risk_score null, confidence_level low.",
+      "CRITICAL: If data is insufficient, return risk_level unknown, confidence_level low, and risk_score null.",
+      "CRITICAL: Do not classify company risk as low only because no negative data exists.",
+      "CRITICAL: If there are no internal reviews, no external ratings, no external review signals, and no verified external review/rating sources with actual data, return risk_level unknown, risk_score null, confidence_level low.",
+      "CRITICAL: Generic review pages (no rating_value, reviews_count=0, no specific negatives) are NOT reputation evidence — do not use them to lower risk.",
       "Vacancy pages and company pages are open facts, not reputation evidence.",
-      "Work.ua and Robota.ua vacancy/company pages can support open facts, but they are not enough to conclude low risk.",
-      "Recommendations must be practical: what to clarify, what to ask in writing, what to verify.",
+      "Work.ua and Robota.ua vacancy/company pages are open facts only — never the basis for risk_level low.",
+      "Personalize interview_questions and candidate_action_plan to the candidate's role context if provided.",
+      "source_evidence must only describe what was actually found — no invented details.",
+      "extracted_facts: only include facts with real evidence (confirmed = from verified source, partial = inferred from limited data, inferred = logical but not confirmed).",
     ],
     context: controlledContext,
   });
@@ -438,6 +462,74 @@ function buildFallbackAnalysis(context: AnalyzeEmployerContext, fallbackReason: 
           ? "Є кілька моментів, які потрібно уточнити перед відгуком або співбесідою."
           : "У доступних даних не знайдено критичних формулювань, але ключові умови все одно потрібно підтвердити письмово.";
 
+  const bottomLine =
+    shouldUseUnknownRisk
+      ? "Перевірте конкретну вакансію і попросіть письмово підтвердити зарплату, графік і оформлення."
+      : riskScore >= 55
+        ? "Є серйозні застереження. Підтвердьте ключові умови письмово до будь-якого зобов'язання."
+        : riskScore >= 25
+          ? "Є окремі питання. Уточніть умови на співбесіді та зафіксуйте їх письмово."
+          : "Критичних ризиків не виявлено, але умови все одно потрібно підтвердити письмово.";
+
+  const finalVerdict =
+    context.company.name
+      ? `${context.company.name}: ${summary}`
+      : summary;
+
+  const positiveSignals = unique([
+    ...positives,
+    ...context.externalRatings
+      .filter((r) => r.ratingValue !== null && (r.ratingValue / (r.ratingScale ?? 5)) >= 0.7)
+      .map((r) => `${r.sourceName}: оцінка ${r.ratingValue}/${r.ratingScale ?? 5}`),
+    ...context.externalSignals
+      .filter((s) => s.sentiment === "positive")
+      .map((s) => s.summary.slice(0, 80)),
+  ], 5);
+
+  const riskSignals = unique([
+    ...highRisks,
+    ...mediumRisks,
+    ...bookingWarning,
+    ...context.externalSignals
+      .filter((s) => s.sentiment === "negative")
+      .map((s) => s.summary.slice(0, 80)),
+  ], 6);
+
+  const candidateActionPlan = unique([
+    "Попросіть письмово підтвердити зарплату, графік і оформлення.",
+    containsAny(text, ["бронювання", "бронь", "відстрочка"]) ? "Уточніть умови бронювання і попросіть письмове підтвердження." : null,
+    "Не передавайте оригінали документів до підписання договору.",
+    "Залиште анонімний відгук після співбесіди або роботи.",
+  ], 6);
+
+  const sourceEvidence: SourceEvidence[] = [
+    ...context.externalRatings.slice(0, 3).map((r) => ({
+      source_name: r.sourceName,
+      source_type: "rating",
+      what_found: r.ratingValue !== null
+        ? `Оцінка роботодавця: ${r.ratingValue}/${r.ratingScale ?? 5}`
+        : "Джерело є, але оцінка без числового значення",
+      topics: ["оцінка роботодавця"],
+      limitation: r.reviewsCount > 0 ? null : "Кількість відгуків не вказана",
+    })),
+    ...context.externalSignals.slice(0, 3).map((s) => ({
+      source_name: s.sourceName,
+      source_type: "reviews",
+      what_found: s.summary.slice(0, 80),
+      topics: [s.topic],
+      limitation: null,
+    })),
+  ].slice(0, 5);
+
+  const extractedFacts: ExtractedFact[] = context.openFacts
+    .filter((f) => !isSourceSummaryOpenFact(f) && (f.salaryText ?? f.schedule ?? f.employmentType))
+    .slice(0, 5)
+    .map((f) => ({
+      category: (f.salaryText ? "salary" : f.schedule ? "schedule" : "other") as ExtractedFact["category"],
+      fact: [f.salaryText, f.schedule, f.employmentType, f.city].filter(Boolean).join(" · "),
+      evidence_strength: "confirmed" as const,
+    }));
+
   return {
     summary,
     risk_level: riskFromScore(riskScore, level, context),
@@ -463,7 +555,7 @@ function buildFallbackAnalysis(context: AnalyzeEmployerContext, fallbackReason: 
       "Які бонуси або KPI і як вони розраховуються?",
       containsAny(text, ["бронювання", "бронь", "відстрочка"]) ? "Яка підстава, строк і письмове підтвердження бронювання?" : null,
       context.company.name ? null : "Яка повна юридична назва компанії?",
-    ], 8),
+    ], 10),
     recommendations: unique([
       !hasEmployerExperienceContext(context) ? "Перевірте конкретну вакансію." : null,
       !hasEmployerExperienceContext(context) ? "Попросіть письмово підтвердити зарплату, графік і оформлення." : "Попросіть письмово підтвердити оплату, графік, оформлення і бонуси.",
@@ -473,6 +565,15 @@ function buildFallbackAnalysis(context: AnalyzeEmployerContext, fallbackReason: 
     ], 6),
     source_breakdown: sourceBreakdownFromContext(context),
     disclaimer: DISCLAIMER,
+    final_verdict: finalVerdict,
+    bottom_line: bottomLine,
+    positive_signals: positiveSignals,
+    risk_signals: riskSignals,
+    candidate_action_plan: candidateActionPlan,
+    source_evidence: sourceEvidence,
+    extracted_facts: extractedFacts,
+    repeated_topics: [],
+    practical_score: null,
   };
 }
 
@@ -505,6 +606,40 @@ function coerceResult(value: unknown, fallback: AiAnalysisResult): AiAnalysisRes
       ? "low"
       : confidenceLevel;
 
+  function coerceSourceEvidence(value: unknown, fallback: SourceEvidence[]): SourceEvidence[] {
+    if (!Array.isArray(value)) return fallback;
+    return value
+      .filter((item): item is Record<string, unknown> => item && typeof item === "object")
+      .slice(0, 5)
+      .map((item) => ({
+        source_name: typeof item.source_name === "string" ? item.source_name.slice(0, 80) : "",
+        source_type: typeof item.source_type === "string" ? item.source_type : "unknown",
+        what_found: typeof item.what_found === "string" ? item.what_found.slice(0, 120) : "",
+        topics: Array.isArray(item.topics) ? item.topics.filter((t): t is string => typeof t === "string").slice(0, 5) : [],
+        limitation: typeof item.limitation === "string" ? item.limitation.slice(0, 80) : null,
+      }))
+      .filter((item) => item.source_name && item.what_found);
+  }
+
+  function coerceExtractedFacts(value: unknown, fallback: ExtractedFact[]): ExtractedFact[] {
+    const VALID_CATEGORIES = new Set(["salary", "schedule", "management", "culture", "benefits", "reviews", "growth", "other"]);
+    const VALID_STRENGTH = new Set(["confirmed", "partial", "inferred"]);
+    if (!Array.isArray(value)) return fallback;
+    return value
+      .filter((item): item is Record<string, unknown> => item && typeof item === "object")
+      .slice(0, 8)
+      .map((item) => ({
+        category: (VALID_CATEGORIES.has(String(item.category)) ? item.category : "other") as ExtractedFact["category"],
+        fact: typeof item.fact === "string" ? item.fact.slice(0, 120) : "",
+        evidence_strength: (VALID_STRENGTH.has(String(item.evidence_strength)) ? item.evidence_strength : "inferred") as ExtractedFact["evidence_strength"],
+      }))
+      .filter((item) => item.fact);
+  }
+
+  const practicalScore = typeof record.practical_score === "number"
+    ? Math.max(1, Math.min(10, Math.round(record.practical_score)))
+    : null;
+
   return {
     summary: forceUnknownRisk
       ? fallback.summary
@@ -523,6 +658,19 @@ function coerceResult(value: unknown, fallback: AiAnalysisResult): AiAnalysisRes
     recommendations: coerceStringArray(record.recommendations, fallback.recommendations),
     source_breakdown: fallback.source_breakdown,
     disclaimer: DISCLAIMER,
+    final_verdict: typeof record.final_verdict === "string" && record.final_verdict.trim()
+      ? record.final_verdict.trim().slice(0, 300)
+      : fallback.final_verdict,
+    bottom_line: typeof record.bottom_line === "string" && record.bottom_line.trim()
+      ? record.bottom_line.trim().slice(0, 200)
+      : fallback.bottom_line,
+    positive_signals: coerceStringArray(record.positive_signals, fallback.positive_signals),
+    risk_signals: coerceStringArray(record.risk_signals, fallback.risk_signals),
+    candidate_action_plan: coerceStringArray(record.candidate_action_plan, fallback.candidate_action_plan),
+    source_evidence: coerceSourceEvidence(record.source_evidence, fallback.source_evidence),
+    extracted_facts: coerceExtractedFacts(record.extracted_facts, fallback.extracted_facts),
+    repeated_topics: coerceStringArray(record.repeated_topics, fallback.repeated_topics),
+    practical_score: forceUnknownRisk ? null : practicalScore,
   };
 }
 
