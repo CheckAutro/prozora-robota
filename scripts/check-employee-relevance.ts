@@ -5,11 +5,15 @@
  *   npx tsx scripts/check-employee-relevance.ts               # audit all public review sources
  *   npx tsx scripts/check-employee-relevance.ts --company=atb  # single company
  *   npx tsx scripts/check-employee-relevance.ts --self-check   # run built-in test cases
- *   npx tsx scripts/check-employee-relevance.ts --mark-private # set is_public=false for rejected (high confidence)
+ *   npx tsx scripts/check-employee-relevance.ts --mark-private # set is_public=false for high-confidence REJECT
+ *   npx tsx scripts/check-employee-relevance.ts --mark-private --include-medium-consumer
+ *     # also marks medium-confidence REJECT when category is consumer_review / product_service_review / customer_complaint
  *
  * Safety:
  *   - Does NOT delete any rows.
- *   - --mark-private only sets is_public=false + status=needs_verification for high-confidence REJECT.
+ *   - --mark-private sets is_public=false + status=needs_verification for high-confidence REJECT.
+ *   - --include-medium-consumer extends that to medium-confidence obvious consumer categories only.
+ *   - REVIEW sources are never touched regardless of flags.
  *   - Never touches public.reviews, internal ratings, or review counts.
  */
 
@@ -27,9 +31,16 @@ loadEnvConfig(process.cwd(), true);
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
+const MEDIUM_CONSUMER_CATEGORIES = new Set([
+  "consumer_review",
+  "product_service_review",
+  "customer_complaint",
+]);
+
 interface Args {
   company: string | null;
   markPrivate: boolean;
+  includeMediumConsumer: boolean;
   selfCheck: boolean;
   allTypes: boolean;
   showAccepted: boolean;
@@ -38,19 +49,21 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   let company: string | null = null;
   let markPrivate = false;
+  let includeMediumConsumer = false;
   let selfCheck = false;
   let allTypes = false;
   let showAccepted = false;
 
   for (const arg of argv) {
     if (arg === "--mark-private") markPrivate = true;
+    else if (arg === "--include-medium-consumer") includeMediumConsumer = true;
     else if (arg === "--self-check") selfCheck = true;
     else if (arg === "--all-types") allTypes = true;
     else if (arg === "--show-accepted") showAccepted = true;
     else if (arg.startsWith("--company=")) company = arg.slice("--company=".length).trim() || null;
   }
 
-  return { company, markPrivate, selfCheck, allTypes, showAccepted };
+  return { company, markPrivate, includeMediumConsumer, selfCheck, allTypes, showAccepted };
 }
 
 // ── DB operations ─────────────────────────────────────────────────────────────
@@ -90,7 +103,10 @@ async function main() {
   console.log("Employee Relevance Audit");
   console.log("=".repeat(64));
   if (args.company) console.log(`Company     : ${args.company}`);
-  console.log(`Mode        : ${args.markPrivate ? "MARK-PRIVATE — will set is_public=false for REJECT" : "audit only (pass --mark-private to act)"}`);
+  const modeLabel = args.markPrivate
+    ? `MARK-PRIVATE — high-confidence REJECT${args.includeMediumConsumer ? " + medium consumer categories" : ""}`
+    : "audit only (pass --mark-private to act)";
+  console.log(`Mode        : ${modeLabel}`);
   console.log(`Source types: ${args.allTypes ? "all" : "reviews + rating only"}`);
   console.log("=".repeat(64));
 
@@ -194,27 +210,49 @@ async function main() {
   }
 
   // Apply --mark-private
-  if (args.markPrivate && rejected.length > 0) {
-    console.log("\n" + "─".repeat(64));
-    console.log(`Marking ${rejected.filter(({ result }) => result.confidence === "high").length} high-confidence rejected sources as private...`);
-    let marked = 0;
-    let markErrors = 0;
-    for (const { id, slug, name, result } of rejected) {
-      if (result.confidence !== "high") continue;
-      const { ok, error: markError } = await markSourcePrivate(id);
-      if (ok) {
-        marked++;
-        console.log(`  ✓ ${slug}/${name} → is_public=false, status=needs_verification`);
-      } else {
-        markErrors++;
-        console.log(`  ✗ ${slug}/${name} → ERROR: ${markError}`);
+  if (args.markPrivate) {
+    const toMark = rejected.filter(({ result }) => {
+      if (result.confidence === "high") return true;
+      if (
+        args.includeMediumConsumer &&
+        result.confidence === "medium" &&
+        MEDIUM_CONSUMER_CATEGORIES.has(result.category)
+      ) return true;
+      return false;
+    });
+
+    if (toMark.length > 0) {
+      console.log("\n" + "─".repeat(64));
+      const breakdown = [
+        `${toMark.filter(({ result }) => result.confidence === "high").length} high-confidence`,
+        args.includeMediumConsumer
+          ? `${toMark.filter(({ result }) => result.confidence === "medium").length} medium-consumer`
+          : "",
+      ].filter(Boolean).join(" + ");
+      console.log(`Marking ${toMark.length} rejected sources as private (${breakdown})...`);
+
+      let marked = 0;
+      let markErrors = 0;
+      for (const { id, slug, name, url, result } of toMark) {
+        const { ok, error: markError } = await markSourcePrivate(id);
+        if (ok) {
+          marked++;
+          console.log(
+            `  ✓ ${slug}/${name}  conf=${result.confidence}  cat=${result.category}` +
+            `\n    url=${url}` +
+            `\n    reason=${result.reason}`
+          );
+        } else {
+          markErrors++;
+          console.log(`  ✗ ${slug}/${name} → ERROR: ${markError}`);
+        }
       }
+      console.log(`\nMarked private : ${marked}`);
+      if (markErrors > 0) console.log(`Errors         : ${markErrors}`);
+    } else {
+      console.log("\nNo sources eligible to mark private.");
     }
-    console.log(`\nMarked private : ${marked}`);
-    if (markErrors > 0) console.log(`Errors         : ${markErrors}`);
     console.log("\nSAFETY: public.reviews unchanged. Internal ratings unchanged.");
-  } else if (args.markPrivate && rejected.length === 0) {
-    console.log("\nNo high-confidence rejected sources to mark private.");
   } else if (!args.markPrivate && rejected.length > 0) {
     console.log(`\n→ ${rejected.length} consumer/client sources found. Run with --mark-private to hide them.`);
   }
